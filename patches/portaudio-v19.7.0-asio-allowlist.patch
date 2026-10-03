@@ -1,0 +1,28 @@
+diff --git a/src/hostapi/asio/pa_asio.cpp b/src/hostapi/asio/pa_asio.cpp
+index bc5f0e4..7674524 100644
+--- a/src/hostapi/asio/pa_asio.cpp
++++ b/src/hostapi/asio/pa_asio.cpp
+@@ -82,6 +82,7 @@
+ 
+ 
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <assert.h>
+ #include <string.h>
+ //#include <values.h>
+@@ -1283,10 +1284,15 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
+ 
+         IsDebuggerPresent_ = (IsDebuggerPresentPtr)GetProcAddress( LoadLibraryA( "Kernel32.dll" ), "IsDebuggerPresent" );
+ 
++        const char* onlyDriverName = getenv("SRT_RX_ASIO_ONLY");
++
+         for( i=0; i < driverCount; ++i )
+         {
+             PA_DEBUG(("ASIO names[%d]:%s\n",i,names[i]));
+ 
++            if( onlyDriverName && strcmp(onlyDriverName, names[i]) != 0 )
++                continue;
++
+             // Since portaudio opens ALL ASIO drivers, and no one else does that,
+             // we face fact that some drivers were not meant for it, drivers which act
+             // like shells on top of REAL drivers, for instance.

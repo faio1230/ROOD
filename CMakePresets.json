@@ -1,0 +1,46 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "windows-mingw-dev",
+      "displayName": "Windows MinGW development",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/portaudio-install"
+      }
+    },
+    {
+      "name": "windows-mingw-asio-test",
+      "inherits": "windows-mingw-dev",
+      "displayName": "Windows MinGW ASIO isolated-driver test",
+      "binaryDir": "${sourceDir}/build/asio-test-app",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/portaudio-asio-test-install"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-mingw-dev",
+      "configurePreset": "windows-mingw-dev"
+    },
+    {
+      "name": "windows-mingw-asio-test",
+      "configurePreset": "windows-mingw-asio-test"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-mingw-dev",
+      "configurePreset": "windows-mingw-dev",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows-mingw-asio-test",
+      "configurePreset": "windows-mingw-asio-test",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
