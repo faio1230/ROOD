@@ -12,7 +12,7 @@ ROODは、SRTの受信・分配・接続状況の監視に特化したWindowsア
 - `rood_ingest` にSpout名を指定すると、デコード映像をSpout2へ出力できます。音声デバイスを同時指定した場合は、音声コールバックの推定メディア時刻に映像を合わせます。
 - `rood_ingest` にOMT名を指定すると、映像と、複数トラックから最大32チャンネルへルーティングした音声をOMTへ出力できます。双方の元PTSをOMTタイムスタンプへ渡します。
 
-**クロック差補正は初期実装で、長時間の実機検証が未完了です。** 受信エンジンは現時点でMPEG-TSとlistenerモードに限定されます。映像と音声の同期時刻はPortAudioコールバックから推定しており、物理出力時刻の測定値ではありません。
+**クロック差補正は初期実装で、1時間のローカルWASAPIループバック試験を通しました。** 別クロックの実機での長時間試験は未完了です。受信エンジンは現時点でMPEG-TSとlistenerモードに限定されます。映像と音声の同期時刻はPortAudioコールバックから推定しており、物理出力時刻の測定値ではありません。
 
 ## Windows MSVC + Qt 6での開発
 
@@ -40,7 +40,7 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 ./scripts/run-gui-msvc.cmd
 ```
 
-最適化したWASAPI版の確認には `./scripts/build-media-release-msvc.cmd` を使います。Debug版とは別の `build/msvc-media-release` に出力し、同じ固定済み依存でビルドとCTestを実行します。ASIO SDKはこの構成に入りません。
+最適化したWASAPI版の確認には `./scripts/build-media-release-msvc.cmd` を使います。Debug版とは別の `build/msvc-media-release` に出力し、同じ固定済み依存でビルドとCTestを実行します。起動は `./scripts/run-gui-release-msvc.cmd` です。ASIO SDKはこの構成に入りません。
 
 `vcpkg.json` はlibsrt 1.5.6とFFmpeg 8.1.2の共有ライブラリ構成を固定します。FFmpegは `avcodec`、`avformat`、`swresample`、`swscale` のみを指定し、GPL／nonfreeの追加機能を選びません。Spout2は2.007.017のソースを固定してMSVCで構築し、OMTはv1.0.0.16の公式Windows x64配布物をSHA-256で確認します。Spout2とOMTの出力は開発用CLIから利用できます。
 
@@ -69,11 +69,18 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 
 デコードスレッドはチャンネルを時刻付きの有界リングバッファに配置し、PortAudioコールバックは用意済みのfloat32 PCMを読むだけです。キュー競合、入力不足、未着トラックは無音になります。診断出力の `renderedFrames` はコールバックがメディアの入ったフレーム位置を読んだ数で、実際の物理出力を測定した値ではありません。
 
-長時間のクロック差補正では、音声キューの先行量を開始後5秒で基準化し、その後の変化から最大±500 ppmの緩やかなリサンプル補正を行います。GUIとCLIに補正量を表示します。1時間以上の実機試験と物理出力の時差測定は未実施です。
+長時間のクロック差補正では、音声キューの先行量を開始後5秒で基準化し、その後の変化から最大±500 ppmの緩やかなリサンプル補正を行います。GUIとCLIに補正量を表示します。1時間の同一PC内ループバックでは内部時差を維持しました。別の送信機・音声機器を使う試験と物理出力の時差測定は未実施です。
+
+```powershell
+./scripts/test-srt-hour.ps1 -AudioDevice 11
+./scripts/test-srt-hour.ps1 -AnalyzeOnly
+```
+
+1時間試験の最初のSRT接続では、音声172,339,052フレーム、Spout映像89,968フレームを出力しました。デバイスunderflowとSpout送信失敗は0、補正器は安定状態でした。一時的なPC負荷上昇時に音声14,825フレーム（約0.31秒）と映像1フレームが破棄され、SRT受信キューは最大575 msになりました。ログ上の補正誤差は最大2.44 ms、音声・Spout推定時差は最大17.97 msでした。これらはアプリ内部の観測値です。試験後、SRT切断・再接続も通りました。詳細は[検証記録](docs/portaudio-validation.md)を参照してください。
 
 `test-audio-recovery.ps1` は仮想WASAPIデバイスを8秒間排他占有し、ROODが初期の開設失敗から同じSRT接続中に復帰して音声を再生するか確認します。稼働中の機器を物理的に切断する試験は別途必要です。
 
-Spout出力のみを試す場合は `./scripts/run-ingest-msvc.cmd --port 9000 --spout ROOD` を使います。`--video-delay`、`--video-offset`、`--video-late-drop` はミリ秒単位です。音声デバイスを同時指定すると音声コールバックの推定メディア時刻を映像の基準に使います。デコードスレッドがRGBAに変換して有界キューへ入れ、別スレッドが表示時刻に合わせて送信します。`-SpoutName` 付きループバックでは別プロセスのSpout受信器が画像画素を取得したことまで確認します。
+Spout出力のみを試す場合は `./scripts/run-ingest-msvc.cmd --port 9000 --spout ROOD` を使います。`--video-delay`、`--video-offset`、`--video-late-drop` はミリ秒単位です。`--video-delay` は音声デバイスを使わないときの遅延です。音声デバイスを同時指定すると、その出力遅延とコールバックの推定メディア時刻を映像の基準に使い、映像との時差は `--video-offset` で調整します。デコードスレッドがRGBAに変換して有界キューへ入れ、別スレッドが表示時刻に合わせて送信します。`-SpoutName` 付きループバックでは別プロセスのSpout受信器が画像画素を取得したことまで確認します。
 
 OMT出力の例は `./scripts/run-ingest-msvc.cmd --port 9000 --omt ROOD --omt-channels 2 --omt-rate 48000 --omt-delay 250 --omt-route 257:0:0 --omt-route 258:5:1` です。OMT出力は映像BGRAと最大32チャンネルの平面float32音声を出します。別プロセスの受信プローブで映像画素と32チャンネル音声を受信し、ステレオトラックを0番、別の5.1トラックの6番目を31番に割り当てた信号を確認済みです。音声デバイスとOMTの時刻基準は現時点では別なので、同時出力の長時間同期は未検証です。
 

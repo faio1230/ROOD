@@ -20,11 +20,14 @@ $firstDisconnect = $output.IndexOf('state disconnected')
 if ($firstDisconnect -lt 0) { throw "The first SRT connection did not end cleanly. See $logPath" }
 $first = $output.Substring(0, $firstDisconnect)
 $audioLines = [regex]::Matches($first, '(?m)^audio callbacks=.+$')
+$audioDetailedLines = [regex]::Matches($first, '(?m)^audio callbacks=.+driftLocked=.+$')
 $videoLines = [regex]::Matches($first, '(?m)^spout received=.+$')
-if ($audioLines.Count -eq 0 -or $videoLines.Count -eq 0) {
+if ($audioLines.Count -eq 0 -or $audioDetailedLines.Count -eq 0 -or
+    $videoLines.Count -eq 0) {
     throw "Audio or Spout statistics were not recorded. See $logPath"
 }
 $audio = $audioLines[$audioLines.Count - 1].Value
+$audioDetailed = $audioDetailedLines[$audioDetailedLines.Count - 1].Value
 $video = $videoLines[$videoLines.Count - 1].Value
 $read = {
     param([string]$line, [string]$field)
@@ -37,9 +40,9 @@ $underflows = [long](& $read $audio 'deviceUnderflows')
 $rejected = [long](& $read $audio 'rejectedFrames')
 $timestampRegressions = [long](& $read $audio 'timestampRegressions')
 $silent = [long](& $read $audio 'silentFrames')
-$locked = [int](& $read $audio 'driftLocked')
-$driftPpm = [double]::Parse((& $read $audio 'driftPpm'), [Globalization.CultureInfo]::InvariantCulture)
-$driftErrorMs = [double]::Parse((& $read $audio 'driftErrorMs'), [Globalization.CultureInfo]::InvariantCulture)
+$locked = [int](& $read $audioDetailed 'driftLocked')
+$driftPpm = [double]::Parse((& $read $audioDetailed 'driftPpm'), [Globalization.CultureInfo]::InvariantCulture)
+$driftErrorMs = [double]::Parse((& $read $audioDetailed 'driftErrorMs'), [Globalization.CultureInfo]::InvariantCulture)
 $received = [long](& $read $video 'received')
 $sent = [long](& $read $video 'sent')
 $dropped = [long](& $read $video 'dropped')

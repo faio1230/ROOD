@@ -363,9 +363,11 @@ public:
         spoutForm->addRow(spoutEnabled_);
         spoutName_ = new QLineEdit(QStringLiteral("ROOD"), spoutGroup);
         videoDelay_ = spin(0, 5000, 250, spoutGroup);
+        videoDelay_->setToolTip(QStringLiteral(
+            "音声デバイスを使わない場合の遅延です。音声との時差は下のオフセットで調整します。"));
         videoOffset_ = spin(-5000, 5000, 0, spoutGroup);
         spoutForm->addRow(QStringLiteral("送信名"), spoutName_);
-        spoutForm->addRow(QStringLiteral("映像遅延 (ms)"), videoDelay_);
+        spoutForm->addRow(QStringLiteral("映像単独時の遅延 (ms)"), videoDelay_);
         spoutForm->addRow(QStringLiteral("音声とのオフセット (ms)"), videoOffset_);
         settingsLayout->addWidget(spoutGroup);
 
