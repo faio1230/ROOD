@@ -8,8 +8,9 @@ ROODは、SRTの受信・分配・接続状況の監視に特化したWindowsア
 - Qt 6 Widgetsが見つかる環境では、現在の開発状態を表示するGUIシェルをビルドできます。
 - PortAudio開発ファイルが見つかる環境では、デバイス列挙、WASAPI共有／排他の形式確認、無音出力時のタイムスタンプ確認ができます。
 - 開発用CLI `rood_ingest` がSRT listenerでMPEG-TSを受信し、FFmpegで映像と複数音声トラックを分離・デコードします。ストリームID、チャンネル構成、PTS、受信統計を表示し、切断後は再び待ち受けます。
+- `rood_ingest` に音声デバイスを指定すると、各トラックのチャンネルを任意の出力チャンネルへ割り当て、必要なサンプルレート変換を行ってPortAudioのWASAPI／ASIOデバイスへ出力できます。出力遅延をミリ秒で指定できます。
 
-**映像／音声同期、エンジンからPortAudioへの音声出力、Spout／OMT出力は未実装です。** GUIにも受信開始操作はありません。受信エンジンは現時点でMPEG-TSとlistenerモードに限定されます。
+**長時間のクロック差補正、映像／音声の出力同期、Spout／OMT出力は未実装です。** GUIにも受信開始操作はありません。受信エンジンは現時点でMPEG-TSとlistenerモードに限定されます。音声は出力時刻に対して整列させていますが、長時間のドリフト補正はまだ行いません。
 
 ## Windows MSVC + Qt 6での開発
 
@@ -42,11 +43,21 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 
 ### SRT受信の確認
 
-受信側を起動するとUDPポート9000で待ち受けます。映像・音声フレームは診断用コールバックまで届きますが、まだ画面や音声デバイスには出しません。
+受信側を起動するとUDPポート9000で待ち受けます。このコマンドでは映像・音声フレームを診断用コールバックへ渡し、音声デバイスには出しません。
 
 ```powershell
 ./scripts/run-ingest-msvc.cmd --port 9000 --latency 120
 ```
+
+音声デバイスへの出力例。デバイス番号は `./scripts/list-audio-devices-msvc.cmd` で確認します。以下のトラックIDはループバック用MPEG-TSの例です。`--route` は `トラックID:入力チャンネル:出力チャンネル[:ゲイン]` で、チャンネル番号は0始まりです。`--wasapi-exclusive` を加えるとWASAPI排他モードになります。
+
+```powershell
+./scripts/run-ingest-msvc.cmd --port 9000 --audio-device 12 --audio-channels 2 --audio-rate 48000 --audio-delay 250 --route 257:0:0 --route 257:1:1 --route 258:5:1:0.5
+./scripts/test-srt-loopback.ps1 -AudioDevice 12
+./scripts/test-srt-loopback.ps1 -AudioDevice 12 -WasapiExclusive
+```
+
+デコードスレッドはチャンネルを時刻付きの有界リングバッファに配置し、PortAudioコールバックは用意済みのfloat32 PCMを読むだけです。キュー競合、入力不足、未着トラックは無音になります。診断出力の `renderedFrames` はコールバックがメディアの入ったフレーム位置を読んだ数で、実際の物理出力を測定した値ではありません。
 
 別の端末からSRT callerでMPEG-TSを送ります。`--seconds 20` で自動終了、Ctrl+Cでも停止できます。任意のポートを使うループバック検証は、FFmpeg CLIがある環境で次を実行します。
 
@@ -55,6 +66,13 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 ```
 
 検証は映像1本、ステレオ音声1本、5.1音声1本を生成し、ストリームID、チャンネル数、PTS、デコード済みフレーム、切断後の再接続を確認します。`-FfmpegPath` でFFmpeg CLIの場所を指定できます。FFmpeg CLIは検証用で、アプリの実行時依存ではありません。
+
+ASIO検証用PortAudioでは、ドライバを絞ったうえで別プリセットを使います。次の例はVB-Matrix VASIO-32の32出力チャンネル・44.1 kHzへ、48 kHz入力を変換する検証です。検証用ビルドはSteinberg SDKを含む可能性があるため、配布物には使いません。
+
+```powershell
+./scripts/build-media-asio-msvc.cmd
+./scripts/test-srt-loopback.ps1 -AudioDevice 0 -AudioChannels 32 -AudioRate 44100 -Routes @('257:0:0','258:5:31') -ReceiverExe "$(Resolve-Path ./build/msvc-media-asio/rood_ingest.exe)" -PortAudioBin "$(Resolve-Path ./build/deps/portaudio-asio-msvc-test-install/bin)" -AsioOnly 'VB-Matrix VASIO-32'
+```
 
 ASIOの検証用ビルドにはSteinberg公式ASIO SDK 2.3.4をローカルで使います。初回のPowerShellスクリプトは公式配布URLから取得し、SHA-256を照合します。SDKとビルド成果物は `build/` 以下に置き、Gitへ含めません。検証用PortAudioパッチは環境変数で1つのASIOドライバだけを開くためのもので、通常ビルドには適用しません。
 
