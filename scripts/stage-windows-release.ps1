@@ -128,6 +128,7 @@ $files = @(
     @{ Source = (Join-Path $qt 'sbom/qtbase-6.10.3.source.spdx'); Target = 'licenses/Qt-qtbase-6.10.3.source.spdx'; Component = 'Qt 6.10.3' }
     @{ Source = (Join-Path $qtSource 'SOURCE-REFERENCE.txt'); Target = 'licenses/Qt-SOURCE-REFERENCE.txt'; Component = 'Qt 6.10.3' }
     @{ Source = $qtArchive; Target = "source/Qt/$qtArchiveName"; Component = 'Qt 6.10.3 binary provenance' }
+    @{ Source = $qtSourceArchive; Target = 'source/Qt/qtbase-everywhere-src-6.10.3.tar.xz'; Component = 'Qt 6.10.3 source' }
     @{ Source = $ffmpegArchive; Target = 'source/FFmpeg/ffmpeg-n8.1.2.tar.gz'; Component = 'FFmpeg 8.1.2 source' }
     @{ Source = $ffmpegPortfile; Target = 'source/FFmpeg/vcpkg-portfile.cmake'; Component = 'FFmpeg 8.1.2 source' }
     @{ Source = (Join-Path $repo 'vcpkg.json'); Target = 'source/FFmpeg/rood-vcpkg.json'; Component = 'FFmpeg 8.1.2 source' }
@@ -245,6 +246,17 @@ $entries += [pscustomobject]@{
     bytes = (Get-Item -LiteralPath $qtAuditPath).Length
     sha256 = (Get-FileHash -LiteralPath $qtAuditPath -Algorithm SHA256).Hash.ToLowerInvariant()
 }
+$qtInventoryPath = Join-Path $stage 'licenses/Qt-THIRD-PARTY-SBOM-INVENTORY.json'
+& (Join-Path $PSScriptRoot 'audit-qt-third-party.ps1') `
+    -SbomPath $qtSbom -OutputPath $qtInventoryPath
+$qtInventory = Get-Content -LiteralPath $qtInventoryPath -Raw | ConvertFrom-Json
+$qtUnassertedCount = @($qtInventory.packages | Where-Object licenseConcluded -eq 'NOASSERTION').Count
+$entries += [pscustomobject]@{
+    path = 'licenses/Qt-THIRD-PARTY-SBOM-INVENTORY.json'
+    component = 'Qt 6.10.3 audit'
+    bytes = (Get-Item -LiteralPath $qtInventoryPath).Length
+    sha256 = (Get-FileHash -LiteralPath $qtInventoryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+}
 $qtMismatchCount = @($qtBinaryAudit | Where-Object { -not $_.sha1Matches }).Count
 $qtChecksumStatus = if ($qtMismatchCount -eq 0) {
     'All four staged Qt binary SHA-1 values match their SBOM entries.'
@@ -267,6 +279,8 @@ $manifest = [ordered]@{
     qtOfficialArchiveSha256 = $qtArchiveSha256
     qtStagedFilesMatchOfficialArchive = $true
     qtSbomBinaryChecksumsMatch = ($qtMismatchCount -eq 0)
+    qtThirdPartySbomPackageCount = $qtInventory.packageCount
+    qtThirdPartySbomUnassertedCount = $qtUnassertedCount
     ffmpegSourceArchiveSha512 = $ffmpegArchiveSha512
     libsrtSourceArchiveSha512 = $srtArchiveSha512
     vcpkgRevision = $vcpkgRevision
@@ -291,6 +305,9 @@ Before public distribution:
   $qtChecksumStatus
   The per-file comparison is in licenses/Qt-SBOM-CHECKSUM-AUDIT.json. A valid
   Authenticode signature alone does not establish the reason for a mismatch.
+  The Qt SBOM dependency inventory lists $($qtInventory.packageCount) third-party packages,
+  including $qtUnassertedCount with no license conclusion. See licenses/Qt-THIRD-PARTY-SBOM-INVENTORY.json;
+  review actual inclusion and the full notices in the bundled SPDX and source.
 - Review all bundled notices and matching FFmpeg/libsrt/Qt source and build data.
   FFmpeg and libsrt source archives, vcpkg patches and Release build settings
   are retained under source/ for review. Confirm their public source access.
