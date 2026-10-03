@@ -450,12 +450,16 @@ private:
         }
         if (snapshot.hasAudio)
             text += QStringLiteral("\n音声出力  callback %1  再生フレーム %2\n"
-                                   "underflow %3  破棄 %4  稼働 %5\n")
+                                   "underflow %3  破棄 %4  稼働 %5\n"
+                                   "クロック補正 %6 ppm  誤差 %7 ms  安定 %8\n")
                 .arg(snapshot.audio.callbackCount)
                 .arg(snapshot.audio.renderedFrames)
                 .arg(snapshot.audio.deviceUnderflows)
                 .arg(snapshot.audio.rejectedFrames)
-                .arg(snapshot.audio.streamActive ? QStringLiteral("はい") : QStringLiteral("いいえ"));
+                .arg(snapshot.audio.streamActive ? QStringLiteral("はい") : QStringLiteral("いいえ"))
+                .arg(snapshot.audio.driftCorrectionPpm, 0, 'f', 1)
+                .arg(snapshot.audio.driftErrorMs, 0, 'f', 2)
+                .arg(snapshot.audio.driftLocked ? QStringLiteral("はい") : QStringLiteral("いいえ"));
         if (snapshot.hasSpout)
             text += QStringLiteral("\nSpout  受信 %1  送信 %2  破棄 %3  失敗 %4\n")
                 .arg(snapshot.spout.receivedFrames)

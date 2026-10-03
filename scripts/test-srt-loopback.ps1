@@ -9,7 +9,9 @@ param(
     [string[]]$Routes = @('257:0:0', '258:5:1'),
     [string]$AsioOnly = '',
     [string]$SpoutName = '',
-    [string]$OmtName = ''
+    [string]$OmtName = '',
+    [int]$FirstSeconds = 5,
+    [int]$ReceiverSeconds = 20
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,6 +27,10 @@ if (-not (Test-Path -LiteralPath $ReceiverExe)) {
 if (-not (Test-Path -LiteralPath $FfmpegPath)) {
     throw "FFmpeg CLI was not found: $FfmpegPath"
 }
+if ($FirstSeconds -lt 3 -or $FirstSeconds -gt 3600 -or
+    $ReceiverSeconds -lt ($FirstSeconds + 10) -or $ReceiverSeconds -gt 3700) {
+    throw 'ReceiverSeconds must be at least FirstSeconds + 10.'
+}
 
 $logDir = Join-Path $repo 'build/tests/srt-loopback'
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
@@ -34,7 +40,7 @@ Remove-Item -LiteralPath $stdout, $stderr -ErrorAction SilentlyContinue
 $port = Get-Random -Minimum 20000 -Maximum 50000
 $env:PATH = "$runtimeBin;$PortAudioBin;$spoutBin;$omtBin;$env:PATH"
 if ($AsioOnly) { $env:ROOD_ASIO_ONLY = $AsioOnly }
-$receiverArgs = @('--port', "$port", '--seconds', '20', '--require-media')
+$receiverArgs = @('--port', "$port", '--seconds', "$ReceiverSeconds", '--require-media')
 if ($AudioDevice -ge 0) {
     $receiverArgs += @('--audio-device', "$AudioDevice", '--audio-channels', "$AudioChannels",
                        '--audio-rate', "$AudioRate", '--audio-delay', '250')
@@ -116,7 +122,7 @@ try {
         '-re', '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=25',
         '-re', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
         '-re', '-f', 'lavfi', '-i', 'aevalsrc=0|0|0|0|0|0.15*sin(2*PI*330*t):s=48000:channel_layout=5.1',
-        '-t', '5', '-map', '0:v:0', '-map', '1:a:0', '-map', '2:a:0',
+        '-t', "$FirstSeconds", '-map', '0:v:0', '-map', '1:a:0', '-map', '2:a:0',
         '-c:v', 'mpeg2video', '-threads:v', '1', '-g', '25', '-b:v', '1M',
         '-c:a:0', 'mp2', '-b:a:0', '192k', '-ac:a:0', '2',
         '-c:a:1', 'ac3', '-b:a:1', '384k', '-f', 'mpegts',
@@ -147,7 +153,7 @@ try {
     )
     Invoke-TestSender -SenderArgs $secondSender
 
-    $receiver | Wait-Process -Timeout 25
+    $receiver | Wait-Process -Timeout ($ReceiverSeconds + 5)
     $receiver.Refresh()
     if ($receiver.ExitCode -ne 0) { throw "Receiver failed with exit code $($receiver.ExitCode). See $stderr" }
     $output = Get-Content -LiteralPath $stdout -Raw
@@ -179,6 +185,9 @@ try {
         $maxAfter = ($after | ForEach-Object { [long]$_.Groups[1].Value } | Measure-Object -Maximum).Maximum
         if ($maxAfter -le $maxBefore) {
             throw "The second connection produced no audio output. See $stdout"
+        }
+        if ($FirstSeconds -ge 15 -and $output -notmatch 'driftLocked=1') {
+            throw "Clock recovery did not reach its measurement phase. See $stdout"
         }
     }
     if ($SpoutName -and

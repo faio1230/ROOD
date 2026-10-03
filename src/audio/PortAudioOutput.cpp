@@ -1,6 +1,7 @@
 #include "rood/PortAudioOutput.hpp"
 
 #include "rood/AudioTimeline.hpp"
+#include "rood/ClockRecovery.hpp"
 #include "rood/MediaReceiver.hpp"
 
 #include <portaudio.h>
@@ -17,6 +18,7 @@ extern "C" {
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -106,6 +108,14 @@ public:
         return count;
     }
 
+    void setCompensation(double ppm, int outputRate) {
+        const int distance = outputRate * 10;
+        const int delta = static_cast<int>(std::lround(ppm * distance / 1000000.0));
+        const int result = swr_set_compensation(context_, delta, distance);
+        if (result < 0)
+            throw std::runtime_error("swr_set_compensation: " + ffmpegError(result));
+    }
+
     std::int64_t nextFrame() const { return nextFrame_; }
     bool hasNextFrame() const { return hasNextFrame_; }
     void setNextFrame(std::int64_t position) { nextFrame_ = position; hasNextFrame_ = true; }
@@ -187,9 +197,6 @@ public:
             mappedTracks_.count(static_cast<std::uint32_t>(info.streamId)) == 0) return;
         auto& resampler = resamplers_[info.streamId];
         resampler.configure(frame, config_.sampleRate);
-        const int converted = resampler.convert(frame, scratch_);
-        if (converted == 0) return;
-
         std::int64_t position = delayFrames_;
         if (info.hasPts && info.timeBaseDen > 0) {
             const double mediaSeconds = static_cast<double>(info.pts) * info.timeBaseNum /
@@ -201,6 +208,8 @@ public:
                     static_cast<double>(resampler.hasNextFrame()
                                             ? resampler.nextFrame() - delayFrames_ : 0) /
                     config_.sampleRate);
+                mediaPosition_.store(originSeconds_.load() -
+                    static_cast<double>(delayFrames_) / config_.sampleRate);
                 originSet_.store(true);
             }
             const double relativeFrames = (mediaSeconds - originSeconds_.load()) * config_.sampleRate;
@@ -212,9 +221,34 @@ public:
         } else if (resampler.hasNextFrame()) {
             position = resampler.nextFrame();
         }
-        if (resampler.hasNextFrame() &&
-            std::fabs(static_cast<long double>(position) - resampler.nextFrame()) <= 3)
-            position = resampler.nextFrame();
+        if (resampler.hasNextFrame()) {
+            const auto difference = std::fabs(
+                static_cast<long double>(position) - resampler.nextFrame());
+            if (difference <= config_.sampleRate / 10) {
+                position = resampler.nextFrame();
+            } else {
+                clockRecovery_.reset();
+                driftPpm_.store(0.0);
+                driftErrorMs_.store(0.0);
+                driftLocked_.store(false);
+                lastClockObservation_ = {};
+            }
+        }
+        if (resampler.hasNextFrame() && started_.load() &&
+            static_cast<std::uint32_t>(info.streamId) == *mappedTracks_.begin()) {
+            const auto now = std::chrono::steady_clock::now();
+            const double elapsed = lastClockObservation_.time_since_epoch().count() == 0
+                ? 0.0 : std::chrono::duration<double>(now - lastClockObservation_).count();
+            lastClockObservation_ = now;
+            const double leadSeconds = static_cast<double>(
+                resampler.nextFrame() - timeline_.playhead()) / config_.sampleRate;
+            driftPpm_.store(clockRecovery_.observe(leadSeconds, elapsed));
+            driftErrorMs_.store(clockRecovery_.errorMs());
+            driftLocked_.store(clockRecovery_.locked());
+        }
+        resampler.setCompensation(driftPpm_.load(), config_.sampleRate);
+        const int converted = resampler.convert(frame, scratch_);
+        if (converted == 0) return;
         if (position < 0) {
             const auto skip = std::min<std::int64_t>(-position, converted);
             position += skip;
@@ -242,6 +276,12 @@ public:
         timeline_.reset();
         originSet_.store(false);
         originSeconds_.store(0);
+        mediaPosition_.store(0);
+        clockRecovery_.reset();
+        driftPpm_.store(0);
+        driftErrorMs_.store(0);
+        driftLocked_.store(false);
+        lastClockObservation_ = {};
         lastDacTime_ = 0;
     }
 
@@ -255,13 +295,15 @@ public:
         result.rejectedFrames = timeline_.rejectedFrames();
         result.playheadFrames = timeline_.playhead();
         result.streamActive = started_.load() && Pa_IsStreamActive(stream_.get()) == 1;
+        result.driftCorrectionPpm = driftPpm_.load();
+        result.driftErrorMs = driftErrorMs_.load();
+        result.driftLocked = driftLocked_.load();
         return result;
     }
 
     std::optional<double> playbackMediaSeconds() const noexcept {
         if (!started_.load() || !originSet_.load()) return std::nullopt;
-        const double frames = static_cast<double>(timeline_.playhead() - delayFrames_);
-        return originSeconds_.load() + frames / config_.sampleRate;
+        return mediaPosition_.load();
     }
 
 private:
@@ -272,6 +314,9 @@ private:
         const auto rendered = self.timeline_.pull(frames, static_cast<float*>(output));
         self.renderedFrames_.fetch_add(rendered);
         self.callbacks_.fetch_add(1);
+        const double ratio = 1.0 + self.driftPpm_.load() / 1000000.0;
+        self.mediaPosition_.store(self.mediaPosition_.load() +
+            static_cast<double>(frames) / (self.config_.sampleRate * ratio));
         if (flags & paOutputUnderflow) self.deviceUnderflows_.fetch_add(1);
         if (time && std::isfinite(time->outputBufferDacTime)) {
             const double current = time->outputBufferDacTime;
@@ -292,7 +337,13 @@ private:
     std::int64_t delayFrames_ = 0;
     std::atomic_bool originSet_{false};
     std::atomic<double> originSeconds_{0};
+    std::atomic<double> mediaPosition_{0};
     std::atomic_bool started_{false};
+    ClockRecovery clockRecovery_;
+    std::chrono::steady_clock::time_point lastClockObservation_;
+    std::atomic<double> driftPpm_{0};
+    std::atomic<double> driftErrorMs_{0};
+    std::atomic_bool driftLocked_{false};
     double lastDacTime_ = 0;
     std::atomic<std::uint64_t> callbacks_{0};
     std::atomic<std::uint64_t> renderedFrames_{0};

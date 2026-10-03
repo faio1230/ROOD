@@ -77,6 +77,7 @@ struct ReadContext {
     SRTSOCKET socket;
     std::atomic_bool& stop;
     MediaReceiverObserver& observer;
+    int pollerId;
     Clock::time_point nextStats = Clock::now();
     bool disconnected = false;
 
@@ -105,6 +106,18 @@ int readSrt(void* opaque, std::uint8_t* buffer, int size) {
         // Live SRT preserves message boundaries. One AVIO read must be large
         // enough for a whole live payload, even when FFmpeg requests less.
         if (size < SRT_LIVE_MAX_PLSIZE) return AVERROR(EINVAL);
+        SRT_EPOLL_EVENT event = {};
+        const int ready = srt_epoll_uwait(context.pollerId, &event, 1, 200);
+        if (ready == 0) continue;
+        if (ready == SRT_ERROR) {
+            context.disconnected = true;
+            return AVERROR_EOF;
+        }
+        if (event.events & SRT_EPOLL_ERR) {
+            context.disconnected = true;
+            return AVERROR_EOF;
+        }
+        if (!(event.events & SRT_EPOLL_IN)) continue;
         const int count = srt_recvmsg(context.socket, reinterpret_cast<char*>(buffer), size);
         if (count > 0) return count;
         if (count == 0) {
@@ -177,9 +190,12 @@ void drainDecoder(AVCodecContext* decoder, AVFrame* frame, const AVStream* strea
 }
 
 void receiveSession(SRTSOCKET socket, std::atomic_bool& stop, MediaReceiverObserver& observer) {
-    const int timeoutMs = 250;
-    checkSrt(srt_setsockflag(socket, SRTO_RCVTIMEO, &timeoutMs, sizeof(timeoutMs)), "SRTO_RCVTIMEO");
-    ReadContext read{socket, stop, observer};
+    const bool receiveSync = false;
+    checkSrt(srt_setsockflag(socket, SRTO_RCVSYN, &receiveSync, sizeof(receiveSync)), "SRTO_RCVSYN");
+    Poller poller;
+    const int events = SRT_EPOLL_IN | SRT_EPOLL_ERR;
+    checkSrt(srt_epoll_add_usock(poller.get(), socket, &events), "srt_epoll_add_usock");
+    ReadContext read{socket, stop, observer, poller.get()};
     auto* buffer = static_cast<unsigned char*>(av_malloc(64 * 1024));
     if (!buffer) throw std::bad_alloc();
     AvioPtr io(avio_alloc_context(buffer, 64 * 1024, 0, &read, &readSrt, nullptr, nullptr));

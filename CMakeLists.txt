@@ -18,6 +18,7 @@ option(ROOD_BUILD_OMT_OUTPUT "Build timestamped OMT video and routed audio outpu
 add_library(rood_engine STATIC
     src/engine/ChannelRouter.cpp
     src/engine/AudioTimeline.cpp
+    src/engine/ClockRecovery.cpp
 )
 target_include_directories(rood_engine PUBLIC include)
 target_compile_features(rood_engine PUBLIC cxx_std_17)
@@ -212,4 +213,7 @@ if(BUILD_TESTING)
     add_executable(audio_timeline_test tests/AudioTimelineTest.cpp)
     target_link_libraries(audio_timeline_test PRIVATE rood_engine)
     add_test(NAME audio_timeline COMMAND audio_timeline_test)
+    add_executable(clock_recovery_test tests/ClockRecoveryTest.cpp)
+    target_link_libraries(clock_recovery_test PRIVATE rood_engine)
+    add_test(NAME clock_recovery COMMAND clock_recovery_test)
 endif()

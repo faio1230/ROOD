@@ -213,7 +213,10 @@ public:
                       << " silentFrames=" << audio.silentFrames
                       << " renderedFrames=" << audio.renderedFrames
                       << " rejectedFrames=" << audio.rejectedFrames
-                      << " streamActive=" << audio.streamActive << std::endl;
+                      << " streamActive=" << audio.streamActive
+                      << " driftLocked=" << audio.driftLocked
+                      << " driftPpm=" << audio.driftCorrectionPpm
+                      << " driftErrorMs=" << audio.driftErrorMs << std::endl;
         }
 #endif
     }
