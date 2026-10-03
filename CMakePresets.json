@@ -2,6 +2,18 @@
   "version": 3,
   "configurePresets": [
     {
+      "name": "windows-msvc-dev",
+      "displayName": "ROOD Windows MSVC and Qt development",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/msvc",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/qt/6.10.3/msvc2022_64;${sourceDir}/build/deps/portaudio-msvc-install",
+        "ROOD_REQUIRE_QT": "ON",
+        "ROOD_BUILD_PORTAUDIO_PROBE": "ON"
+      }
+    },
+    {
       "name": "windows-mingw-dev",
       "displayName": "ROOD Windows MinGW development",
       "generator": "MinGW Makefiles",
@@ -9,6 +21,26 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/portaudio-install"
+      }
+    },
+    {
+      "name": "windows-msvc-asio-test",
+      "inherits": "windows-msvc-dev",
+      "displayName": "ROOD Windows MSVC ASIO isolated-driver test",
+      "binaryDir": "${sourceDir}/build/msvc-asio-test",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/qt/6.10.3/msvc2022_64;${sourceDir}/build/deps/portaudio-asio-msvc-test-install"
+      }
+    },
+    {
+      "name": "windows-msvc-media-dev",
+      "inherits": "windows-msvc-dev",
+      "displayName": "ROOD Windows MSVC all media dependencies",
+      "binaryDir": "${sourceDir}/build/msvc-media",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/qt/6.10.3/msvc2022_64;${sourceDir}/build/deps/portaudio-msvc-install;${sourceDir}/build/deps/vcpkg-installed/x64-windows;${sourceDir}/build/deps/spout2-msvc-install",
+        "ROOD_OMT_DIR": "${sourceDir}/build/deps/omt-v1.0.0.16/Libraries/Winx64",
+        "ROOD_BUILD_MEDIA_DEPENDENCY_PROBE": "ON"
       }
     },
     {
@@ -23,6 +55,18 @@
   ],
   "buildPresets": [
     {
+      "name": "windows-msvc-dev",
+      "configurePreset": "windows-msvc-dev"
+    },
+    {
+      "name": "windows-msvc-media-dev",
+      "configurePreset": "windows-msvc-media-dev"
+    },
+    {
+      "name": "windows-msvc-asio-test",
+      "configurePreset": "windows-msvc-asio-test"
+    },
+    {
       "name": "windows-mingw-dev",
       "configurePreset": "windows-mingw-dev"
     },
@@ -32,6 +76,21 @@
     }
   ],
   "testPresets": [
+    {
+      "name": "windows-msvc-dev",
+      "configurePreset": "windows-msvc-dev",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows-msvc-media-dev",
+      "configurePreset": "windows-msvc-media-dev",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows-msvc-asio-test",
+      "configurePreset": "windows-msvc-asio-test",
+      "output": { "outputOnFailure": true }
+    },
     {
       "name": "windows-mingw-dev",
       "configurePreset": "windows-mingw-dev",

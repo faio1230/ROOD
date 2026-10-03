@@ -1,5 +1,7 @@
 /build/
 /build-before-rood/
+/aqtinstall.log
+/vcpkg_installed/
 /out/
 /.vs/
 /.cache/

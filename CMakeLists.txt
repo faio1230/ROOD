@@ -9,6 +9,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(ROOD_BUILD_GUI "Build the Qt Widgets shell when Qt 6 is available" ON)
 option(ROOD_REQUIRE_QT "Fail configuration when Qt 6 Widgets is unavailable" OFF)
 option(ROOD_BUILD_PORTAUDIO_PROBE "Build the PortAudio device probe when PortAudio is available" ON)
+option(ROOD_BUILD_MEDIA_DEPENDENCY_PROBE "Link and inspect the pinned media development libraries" OFF)
 
 add_library(rood_engine STATIC
     src/engine/ChannelRouter.cpp
@@ -59,6 +60,34 @@ if(ROOD_BUILD_PORTAUDIO_PROBE)
         message(STATUS "PortAudio device probe: enabled (${PORTAUDIO_LIBRARY})")
     else()
         message(STATUS "PortAudio development files not found; probe target skipped.")
+    endif()
+endif()
+
+if(ROOD_BUILD_MEDIA_DEPENDENCY_PROBE)
+    find_path(ROOD_FFMPEG_INCLUDE_DIR libavcodec/avcodec.h REQUIRED)
+    find_library(ROOD_AVCODEC_LIBRARY NAMES avcodec REQUIRED)
+    find_library(ROOD_AVUTIL_LIBRARY NAMES avutil REQUIRED)
+    find_path(ROOD_LIBSRT_INCLUDE_DIR srt/srt.h REQUIRED)
+    find_library(ROOD_LIBSRT_LIBRARY NAMES srt REQUIRED)
+    find_path(ROOD_SPOUT_INCLUDE_DIR SpoutLibrary/SpoutLibrary.h REQUIRED)
+    find_library(ROOD_SPOUT_LIBRARY NAMES SpoutLibrary REQUIRED)
+    find_path(ROOD_OMT_INCLUDE_DIR libomt.h HINTS "${ROOD_OMT_DIR}" REQUIRED)
+    find_library(ROOD_OMT_LIBRARY NAMES libomt HINTS "${ROOD_OMT_DIR}" REQUIRED)
+
+    add_executable(rood_deps_probe apps/deps_probe/main.cpp)
+    target_include_directories(rood_deps_probe PRIVATE
+        "${ROOD_FFMPEG_INCLUDE_DIR}"
+        "${ROOD_LIBSRT_INCLUDE_DIR}"
+        "${ROOD_SPOUT_INCLUDE_DIR}"
+        "${ROOD_OMT_INCLUDE_DIR}")
+    target_link_libraries(rood_deps_probe PRIVATE
+        "${ROOD_AVCODEC_LIBRARY}"
+        "${ROOD_AVUTIL_LIBRARY}"
+        "${ROOD_LIBSRT_LIBRARY}"
+        "${ROOD_SPOUT_LIBRARY}"
+        "${ROOD_OMT_LIBRARY}")
+    if(MSVC)
+        target_compile_options(rood_deps_probe PRIVATE /utf-8)
     endif()
 endif()
 

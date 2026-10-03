@@ -13,6 +13,8 @@
 - VB-Matrix VASIO-8: 8チャンネル、44.1 kHzで5秒の無音出力が成功（243 callback、underflow 0、時刻後退0）。報告遅延は約23.22 ms。
 - VB-Matrix VASIO-32: 16チャンネルと32チャンネル、44.1 kHzでそれぞれ3秒の無音出力が成功（各146 callback、underflow 0、時刻後退0）。報告遅延は約23.22 ms。
 - VASIO-8の48 kHz / 8チャンネルは形式照会が対応と返しましたが、`Pa_OpenStream` は `Invalid sample rate` で失敗しました。
+- MSVC版PortAudioでも、VASIO-32の32チャンネル、44.1 kHzで3秒の無音出力が成功しました。146 callback、underflow 0、DAC時刻の後退0、報告遅延23.22 msでした。
+- MSVC版WASAPIでVB-Audio Virtual Cable（ID 12）の共有・排他を48 kHz / 2チャンネルで3秒ずつ再試験しました。共有303 callback、排他302 callback、どちらもunderflow 0。DAC時刻はcallback 2で共有が約8.0 ms、排他が約1.6 ms後退しました。報告遅延は共有22 ms、排他12 msでした。
 
 WASAPI排他モードで時刻が後退したため、`outputBufferDacTime` を無条件に連続時刻として使う設計にはしません。ASIOについても `Pa_IsFormatSupported` の結果だけでは開設可否を決められません。これらの数値はドライバ・機器・同時利用状況に依存します。無音出力が成功しても、各チャンネルの実際の行き先、物理DAC時刻、長時間ドリフトは未検証です。
 
