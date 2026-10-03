@@ -68,10 +68,14 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 ./scripts/test-srt-loopback.ps1 -AudioDevice 12 -SpoutName ROOD-Loopback -OmtName ROOD-Loopback
 ./scripts/test-wasapi-cable-capture.ps1
 ./scripts/test-wasapi-cable-capture.ps1 -WasapiExclusive
+./scripts/test-srt-clock-drift.ps1 -AudioDevice 12 -SenderReadRate 1.0003 -LogName srt-rate-plus300
+./scripts/test-srt-clock-drift.ps1 -AudioDevice 12 -SenderReadRate 0.9997 -LogName srt-rate-minus300
 ./scripts/test-audio-recovery.ps1
 ```
 
 仮想ケーブル録音試験にはVB-Audio Virtual Cable、`C:\Program Files\ffmpeg\bin\ffmpeg.exe`、Pythonが必要です。WASAPIの共有・排他それぞれで、ROODが出した左右の識別信号を対になる録音端から取得して判定します。出力先のPortAudio番号は名前から探します。録音端までの確認結果と限界は[検証記録](docs/portaudio-validation.md)に記載しています。
+
+送出速度差試験は、FFmpegで最初のSRT接続を3分間だけ公称速度から±300 ppmずらします。終盤の補正量、音声キューの誤差、Spoutとの推定時差と破棄数を自動判定します。同一PCの模擬試験なので、独立した送信機と音声デバイスによる長時間同期の検証は引き続き必要です。
 
 デコードスレッドはチャンネルを時刻付きの有界リングバッファに配置し、PortAudioコールバックは用意済みのfloat32 PCMを読むだけです。キュー競合、入力不足、未着トラックは無音になります。診断出力の `renderedFrames` はコールバックがメディアの入ったフレーム位置を読んだ数で、実際の物理出力を測定した値ではありません。
 

@@ -20,6 +20,7 @@ param(
     [int]$OmtProbeSeconds = 16,
     [int]$FirstSeconds = 5,
     [int]$ReceiverSeconds = 20,
+    [double]$SenderReadRate = 1.0,
     [string]$LogName = 'srt-loopback'
 )
 
@@ -40,6 +41,12 @@ if ($FirstSeconds -lt 3 -or $FirstSeconds -gt 3600 -or
     $ReceiverSeconds -lt ($FirstSeconds + 10) -or $ReceiverSeconds -gt 3700) {
     throw 'ReceiverSeconds must be at least FirstSeconds + 10.'
 }
+if ([double]::IsNaN($SenderReadRate) -or [double]::IsInfinity($SenderReadRate) -or
+    $SenderReadRate -lt 0.995 -or $SenderReadRate -gt 1.005) {
+    throw 'SenderReadRate must be between 0.995 and 1.005.'
+}
+$senderRateText = $SenderReadRate.ToString('0.000000',
+    [System.Globalization.CultureInfo]::InvariantCulture)
 if ($LogName -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$') {
     throw 'LogName must contain only letters, digits, underscores and hyphens.'
 }
@@ -150,9 +157,9 @@ try {
 
     $firstSender = @(
         '-hide_banner', '-loglevel', 'error',
-        '-re', '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=25',
-        '-re', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
-        '-re', '-f', 'lavfi', '-i', 'aevalsrc=0|0|0|0|0|0.15*sin(2*PI*330*t):s=48000:channel_layout=5.1',
+        '-readrate', $senderRateText, '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=25',
+        '-readrate', $senderRateText, '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
+        '-readrate', $senderRateText, '-f', 'lavfi', '-i', 'aevalsrc=0|0|0|0|0|0.15*sin(2*PI*330*t):s=48000:channel_layout=5.1',
         '-t', "$FirstSeconds", '-map', '0:v:0', '-map', '1:a:0', '-map', '2:a:0',
         '-c:v', 'mpeg2video', '-threads:v', '1', '-g', '25', '-b:v', '1M',
         '-c:a:0', 'mp2', '-b:a:0', '192k', '-ac:a:0', '2',
