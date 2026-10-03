@@ -196,14 +196,14 @@ public:
                                         info.timeBaseDen;
             if (!std::isfinite(mediaSeconds))
                 throw std::runtime_error("audio PTS is not finite");
-            if (!originSet_) {
-                originSeconds_ = mediaSeconds -
+            if (!originSet_.load()) {
+                originSeconds_.store(mediaSeconds -
                     static_cast<double>(resampler.hasNextFrame()
                                             ? resampler.nextFrame() - delayFrames_ : 0) /
-                    config_.sampleRate;
-                originSet_ = true;
+                    config_.sampleRate);
+                originSet_.store(true);
             }
-            const double relativeFrames = (mediaSeconds - originSeconds_) * config_.sampleRate;
+            const double relativeFrames = (mediaSeconds - originSeconds_.load()) * config_.sampleRate;
             if (!std::isfinite(relativeFrames) ||
                 relativeFrames < -static_cast<double>(config_.sampleRate) * 60 ||
                 relativeFrames > static_cast<double>(std::numeric_limits<std::int64_t>::max() / 2))
@@ -227,21 +227,21 @@ public:
             accepted = timeline_.push(static_cast<std::uint32_t>(info.streamId), position,
                                       frame.ch_layout.nb_channels, scratch_.data(), available);
         resampler.setNextFrame(position + static_cast<std::int64_t>(available));
-        if (!started_ && accepted > 0) {
+        if (!started_.load() && accepted > 0) {
             checkPa(Pa_StartStream(stream_.get()), "Pa_StartStream");
-            started_ = true;
+            started_.store(true);
         }
     }
 
     void reset() {
-        if (started_) {
+        if (started_.load()) {
             Pa_StopStream(stream_.get());
-            started_ = false;
+            started_.store(false);
         }
         resamplers_.clear();
         timeline_.reset();
-        originSet_ = false;
-        originSeconds_ = 0;
+        originSet_.store(false);
+        originSeconds_.store(0);
         lastDacTime_ = 0;
     }
 
@@ -254,8 +254,14 @@ public:
         result.renderedFrames = renderedFrames_.load();
         result.rejectedFrames = timeline_.rejectedFrames();
         result.playheadFrames = timeline_.playhead();
-        result.streamActive = started_ && Pa_IsStreamActive(stream_.get()) == 1;
+        result.streamActive = started_.load() && Pa_IsStreamActive(stream_.get()) == 1;
         return result;
+    }
+
+    std::optional<double> playbackMediaSeconds() const noexcept {
+        if (!started_.load() || !originSet_.load()) return std::nullopt;
+        const double frames = static_cast<double>(timeline_.playhead() - delayFrames_);
+        return originSeconds_.load() + frames / config_.sampleRate;
     }
 
 private:
@@ -284,9 +290,9 @@ private:
     std::set<std::uint32_t> mappedTracks_;
     std::vector<float> scratch_;
     std::int64_t delayFrames_ = 0;
-    bool originSet_ = false;
-    double originSeconds_ = 0;
-    bool started_ = false;
+    std::atomic_bool originSet_{false};
+    std::atomic<double> originSeconds_{0};
+    std::atomic_bool started_{false};
     double lastDacTime_ = 0;
     std::atomic<std::uint64_t> callbacks_{0};
     std::atomic<std::uint64_t> renderedFrames_{0};
@@ -302,5 +308,8 @@ void PortAudioOutput::pushFrame(const FrameInfo& info, const AVFrame& frame) {
 }
 void PortAudioOutput::reset() { impl_->reset(); }
 AudioOutputStats PortAudioOutput::stats() const { return impl_->stats(); }
+std::optional<double> PortAudioOutput::playbackMediaSeconds() const noexcept {
+    return impl_->playbackMediaSeconds();
+}
 
 } // namespace rood

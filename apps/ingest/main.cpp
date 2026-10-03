@@ -2,6 +2,12 @@
 #ifdef ROOD_HAS_AUDIO_OUTPUT
 #include "rood/PortAudioOutput.hpp"
 #endif
+#ifdef ROOD_HAS_SPOUT_OUTPUT
+#include "rood/SpoutVideoOutput.hpp"
+#endif
+#ifdef ROOD_HAS_OMT_OUTPUT
+#include "rood/OmtOutput.hpp"
+#endif
 
 #include <atomic>
 #include <chrono>
@@ -30,7 +36,7 @@ int readNumber(const char* text, int min, int max) {
     return result;
 }
 
-#ifdef ROOD_HAS_AUDIO_OUTPUT
+#if defined(ROOD_HAS_AUDIO_OUTPUT) || defined(ROOD_HAS_OMT_OUTPUT)
 rood::ChannelRoute readRoute(const std::string& text) {
     std::string parts[4];
     std::size_t begin = 0;
@@ -61,12 +67,31 @@ rood::ChannelRoute readRoute(const std::string& text) {
 
 class ConsoleObserver final : public rood::MediaReceiverObserver {
 public:
-#ifdef ROOD_HAS_AUDIO_OUTPUT
-    explicit ConsoleObserver(std::unique_ptr<rood::PortAudioOutput> output)
-        : audioOutput(std::move(output)) {}
-#endif
     void onState(const std::string& state) override {
         if (state == "connected") frameCounts.clear();
+#ifdef ROOD_HAS_OMT_OUTPUT
+        if (state == "connected") omtFailed = false;
+        if (omtOutput && state == "disconnected") {
+            const auto summary = omtOutput->stats();
+            std::cout << "omt video=" << summary.videoFrames
+                      << " audioPackets=" << summary.audioPackets
+                      << " droppedVideo=" << summary.droppedVideoFrames
+                      << " rejectedAudio=" << summary.rejectedAudioFrames
+                      << " connections=" << summary.connections << std::endl;
+            omtOutput->reset();
+        }
+#endif
+#ifdef ROOD_HAS_SPOUT_OUTPUT
+        if (state == "connected") spoutFailed = false;
+        if (spoutOutput && state == "disconnected") {
+            const auto video = spoutOutput->stats();
+            std::cout << "spout received=" << video.receivedFrames
+                      << " sent=" << video.sentFrames
+                      << " dropped=" << video.droppedFrames
+                      << " failed=" << video.failedFrames << std::endl;
+            spoutOutput->reset();
+        }
+#endif
 #ifdef ROOD_HAS_AUDIO_OUTPUT
         if (state == "connected") audioFailed = false;
         if (audioOutput && state == "disconnected") {
@@ -83,6 +108,10 @@ public:
         std::cout << "state " << state << std::endl;
     }
     void onTrack(const rood::TrackInfo& track) override {
+#ifdef ROOD_HAS_OMT_OUTPUT
+        if (omtOutput && track.kind == "video")
+            omtOutput->setVideoFrameRate(track.frameRateNum, track.frameRateDen);
+#endif
         std::cout << "track index=" << track.streamIndex << " id=" << track.streamId
                   << " kind=" << track.kind << " codec=" << track.codec;
         if (track.kind == "audio") {
@@ -97,6 +126,28 @@ public:
         std::cout << " timebase=" << track.timeBaseNum << '/' << track.timeBaseDen << std::endl;
     }
     void onFrame(const rood::FrameInfo& info, const AVFrame& frame) override {
+#ifdef ROOD_HAS_OMT_OUTPUT
+        if (omtOutput && !omtFailed) {
+            try {
+                omtOutput->pushFrame(info, frame);
+            } catch (const std::exception& error) {
+                onError(std::string("OMT output: ") + error.what());
+                omtFailed = true;
+                omtOutput->reset();
+            }
+        }
+#endif
+#ifdef ROOD_HAS_SPOUT_OUTPUT
+        if (spoutOutput && !spoutFailed && info.kind == "video") {
+            try {
+                spoutOutput->pushFrame(info, frame);
+            } catch (const std::exception& error) {
+                onError(std::string("Spout output: ") + error.what());
+                spoutFailed = true;
+                spoutOutput->reset();
+            }
+        }
+#endif
 #ifdef ROOD_HAS_AUDIO_OUTPUT
         if (audioOutput && !audioFailed && info.kind == "audio") {
             try {
@@ -129,6 +180,30 @@ public:
                   << " retransInterval=" << stats.retransmittedPacketsInInterval
                   << " receiveBufferBytes=" << stats.receiveBufferBytes
                   << " receiveBufferMs=" << stats.receiveBufferMs << std::endl;
+#ifdef ROOD_HAS_OMT_OUTPUT
+        if (omtOutput) {
+            const auto omt = omtOutput->stats();
+            std::cout << "omt video=" << omt.videoFrames
+                      << " audioPackets=" << omt.audioPackets
+                      << " droppedVideo=" << omt.droppedVideoFrames
+                      << " rejectedAudio=" << omt.rejectedAudioFrames
+                      << " connections=" << omt.connections << std::endl;
+        }
+#endif
+#ifdef ROOD_HAS_SPOUT_OUTPUT
+        if (spoutOutput) {
+            const auto video = spoutOutput->stats();
+            std::cout << "spout received=" << video.receivedFrames
+                      << " sent=" << video.sentFrames
+                      << " dropped=" << video.droppedFrames
+                      << " failed=" << video.failedFrames
+                      << " audioSyncErrorMs=";
+            if (video.hasAudioSyncError) std::cout << video.lastAudioSyncErrorMs;
+            else std::cout << "unknown";
+            std::cout << " ready=" << video.senderReady << std::endl;
+            if (!video.lastError.empty()) onError(video.lastError);
+        }
+#endif
 #ifdef ROOD_HAS_AUDIO_OUTPUT
         if (audioOutput) {
             const auto audio = audioOutput->stats();
@@ -154,6 +229,14 @@ public:
     std::unique_ptr<rood::PortAudioOutput> audioOutput;
     bool audioFailed = false;
 #endif
+#ifdef ROOD_HAS_SPOUT_OUTPUT
+    std::unique_ptr<rood::SpoutVideoOutput> spoutOutput;
+    bool spoutFailed = false;
+#endif
+#ifdef ROOD_HAS_OMT_OUTPUT
+    std::unique_ptr<rood::OmtOutput> omtOutput;
+    bool omtFailed = false;
+#endif
 };
 
 } // namespace
@@ -167,6 +250,16 @@ int main(int argc, char** argv) {
         rood::AudioOutputConfig audioConfig;
         bool audioRequested = false;
         bool audioOptionsSpecified = false;
+#endif
+#ifdef ROOD_HAS_SPOUT_OUTPUT
+        rood::SpoutVideoConfig spoutConfig;
+        bool spoutRequested = false;
+        bool videoOptionsSpecified = false;
+#endif
+#ifdef ROOD_HAS_OMT_OUTPUT
+        rood::OmtOutputConfig omtConfig;
+        bool omtRequested = false;
+        bool omtOptionsSpecified = false;
 #endif
         for (int i = 1; i < argc; ++i) {
             const std::string argument(argv[i]);
@@ -199,6 +292,39 @@ int main(int argc, char** argv) {
                 audioOptionsSpecified = true;
             }
 #endif
+#ifdef ROOD_HAS_SPOUT_OUTPUT
+            else if (argument == "--spout" && i + 1 < argc) {
+                spoutConfig.senderName = argv[++i];
+                spoutRequested = true;
+            } else if (argument == "--video-delay" && i + 1 < argc) {
+                spoutConfig.outputDelayMs = readNumber(argv[++i], 0, 5000);
+                videoOptionsSpecified = true;
+            } else if (argument == "--video-offset" && i + 1 < argc) {
+                spoutConfig.videoOffsetMs = readNumber(argv[++i], -5000, 5000);
+                videoOptionsSpecified = true;
+            } else if (argument == "--video-late-drop" && i + 1 < argc) {
+                spoutConfig.lateDropMs = readNumber(argv[++i], 0, 2000);
+                videoOptionsSpecified = true;
+            }
+#endif
+#ifdef ROOD_HAS_OMT_OUTPUT
+            else if (argument == "--omt" && i + 1 < argc) {
+                omtConfig.name = argv[++i];
+                omtRequested = true;
+            } else if (argument == "--omt-channels" && i + 1 < argc) {
+                omtConfig.audioChannels = readNumber(argv[++i], 1, 32);
+                omtOptionsSpecified = true;
+            } else if (argument == "--omt-rate" && i + 1 < argc) {
+                omtConfig.audioSampleRate = readNumber(argv[++i], 8000, 192000);
+                omtOptionsSpecified = true;
+            } else if (argument == "--omt-delay" && i + 1 < argc) {
+                omtConfig.outputDelayMs = readNumber(argv[++i], 0, 5000);
+                omtOptionsSpecified = true;
+            } else if (argument == "--omt-route" && i + 1 < argc) {
+                omtConfig.audioRoutes.push_back(readRoute(argv[++i]));
+                omtOptionsSpecified = true;
+            }
+#endif
             else {
                 std::cerr << "usage: rood_ingest [--port N] [--latency MS]"
                              " [--seconds N] [--require-media]"
@@ -207,19 +333,57 @@ int main(int argc, char** argv) {
                              " --audio-delay MS --route TRACK:SOURCE:OUTPUT[:GAIN]"
                              " [--route ...] [--wasapi-exclusive]]"
 #endif
+#ifdef ROOD_HAS_SPOUT_OUTPUT
+                             " [--spout NAME --video-delay MS --video-offset MS"
+                             " --video-late-drop MS]"
+#endif
+#ifdef ROOD_HAS_OMT_OUTPUT
+                             " [--omt NAME --omt-channels N --omt-rate HZ --omt-delay MS"
+                             " --omt-route TRACK:SOURCE:OUTPUT[:GAIN] [--omt-route ...]]"
+#endif
                              "\n";
                 return 2;
             }
         }
         std::signal(SIGINT, onSignal);
+#ifdef ROOD_HAS_SPOUT_OUTPUT
+        if (videoOptionsSpecified && !spoutRequested)
+            throw std::invalid_argument("video options require --spout");
+#endif
+#ifdef ROOD_HAS_OMT_OUTPUT
+        if (omtOptionsSpecified && !omtRequested)
+            throw std::invalid_argument("OMT options require --omt");
+        if (omtRequested && omtConfig.audioRoutes.empty())
+            throw std::invalid_argument("--omt requires at least one --omt-route");
+#endif
 #ifdef ROOD_HAS_AUDIO_OUTPUT
         if (audioOptionsSpecified && !audioRequested)
             throw std::invalid_argument("audio options require --audio-device");
         std::unique_ptr<rood::PortAudioOutput> audioOutput;
         if (audioRequested) audioOutput = std::make_unique<rood::PortAudioOutput>(std::move(audioConfig));
-        ConsoleObserver observer(std::move(audioOutput));
-#else
+#endif
         ConsoleObserver observer;
+#ifdef ROOD_HAS_AUDIO_OUTPUT
+        observer.audioOutput = std::move(audioOutput);
+#endif
+#ifdef ROOD_HAS_SPOUT_OUTPUT
+        if (spoutRequested) {
+            rood::SpoutVideoOutput::AudioMediaClock mediaClock;
+#ifdef ROOD_HAS_AUDIO_OUTPUT
+            if (observer.audioOutput) {
+                auto* output = observer.audioOutput.get();
+                mediaClock = [output] { return output->playbackMediaSeconds(); };
+            }
+#endif
+            observer.spoutOutput = std::make_unique<rood::SpoutVideoOutput>(
+                std::move(spoutConfig), std::move(mediaClock));
+        }
+#endif
+#ifdef ROOD_HAS_OMT_OUTPUT
+        if (omtRequested) {
+            observer.omtOutput = std::make_unique<rood::OmtOutput>(std::move(omtConfig));
+            std::cout << "omt address=" << observer.omtOutput->address() << std::endl;
+        }
 #endif
         std::thread timer;
         if (seconds > 0) {

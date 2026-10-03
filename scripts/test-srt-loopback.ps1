@@ -7,13 +7,17 @@ param(
     [int]$AudioChannels = 2,
     [int]$AudioRate = 48000,
     [string[]]$Routes = @('257:0:0', '258:5:1'),
-    [string]$AsioOnly = ''
+    [string]$AsioOnly = '',
+    [string]$SpoutName = '',
+    [string]$OmtName = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (-not $ReceiverExe) { $ReceiverExe = Join-Path $repo 'build/msvc-media/rood_ingest.exe' }
 $runtimeBin = Join-Path $repo 'build/deps/vcpkg-installed/x64-windows/bin'
+$spoutBin = Join-Path $repo 'build/deps/spout2-msvc-install/bin'
+$omtBin = Join-Path $repo 'build/deps/omt-v1.0.0.16/Libraries/Winx64'
 if (-not $PortAudioBin) { $PortAudioBin = Join-Path $repo 'build/deps/portaudio-msvc-install/bin' }
 if (-not (Test-Path -LiteralPath $ReceiverExe)) {
     throw 'rood_ingest.exe was not found. Run scripts/build-media-msvc.cmd first.'
@@ -28,7 +32,7 @@ $stdout = Join-Path $logDir 'receiver.stdout.txt'
 $stderr = Join-Path $logDir 'receiver.stderr.txt'
 Remove-Item -LiteralPath $stdout, $stderr -ErrorAction SilentlyContinue
 $port = Get-Random -Minimum 20000 -Maximum 50000
-$env:PATH = "$runtimeBin;$PortAudioBin;$env:PATH"
+$env:PATH = "$runtimeBin;$PortAudioBin;$spoutBin;$omtBin;$env:PATH"
 if ($AsioOnly) { $env:ROOD_ASIO_ONLY = $AsioOnly }
 $receiverArgs = @('--port', "$port", '--seconds', '20', '--require-media')
 if ($AudioDevice -ge 0) {
@@ -37,8 +41,27 @@ if ($AudioDevice -ge 0) {
     foreach ($route in $Routes) { $receiverArgs += @('--route', $route) }
     if ($WasapiExclusive) { $receiverArgs += '--wasapi-exclusive' }
 }
+if ($SpoutName) { $receiverArgs += @('--spout', $SpoutName) }
+if ($OmtName) {
+    $receiverArgs += @('--omt', $OmtName, '--omt-channels', '2',
+                       '--omt-route', '257:0:0', '--omt-route', '258:5:1')
+}
 $receiver = Start-Process -FilePath $ReceiverExe -ArgumentList $receiverArgs `
     -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
+$spoutProbe = $null
+if ($SpoutName) {
+    $probeExe = Join-Path (Split-Path -Parent $ReceiverExe) 'rood_spout_probe.exe'
+    if (-not (Test-Path -LiteralPath $probeExe)) {
+        throw 'rood_spout_probe.exe was not found. Run scripts/build-media-msvc.cmd first.'
+    }
+    $probeStdout = Join-Path $logDir 'spout-probe.stdout.txt'
+    $probeStderr = Join-Path $logDir 'spout-probe.stderr.txt'
+    Remove-Item -LiteralPath $probeStdout, $probeStderr -ErrorAction SilentlyContinue
+    $spoutProbe = Start-Process -FilePath $probeExe -ArgumentList @($SpoutName, '16') `
+        -RedirectStandardOutput $probeStdout -RedirectStandardError $probeStderr `
+        -WindowStyle Hidden -PassThru
+}
+$omtProbe = $null
 
 function Invoke-TestSender {
     param([string[]]$SenderArgs)
@@ -68,13 +91,31 @@ try {
     if (-not $listening) {
         throw "Receiver did not start listening. See $stderr"
     }
+    if ($OmtName) {
+        $probeExe = Join-Path (Split-Path -Parent $ReceiverExe) 'rood_omt_probe.exe'
+        if (-not (Test-Path -LiteralPath $probeExe)) {
+            throw 'rood_omt_probe.exe was not found. Run scripts/build-media-msvc.cmd first.'
+        }
+        $receiverOutput = Get-Content -LiteralPath $stdout -Raw
+        $addressMatch = [regex]::Match($receiverOutput, '(?m)^omt address=(.+)$')
+        if (-not $addressMatch.Success -or -not $addressMatch.Groups[1].Value.Trim()) {
+            throw "OMT sender address was not reported. See $stdout"
+        }
+        $omtAddress = $addressMatch.Groups[1].Value.Trim()
+        $omtProbeStdout = Join-Path $logDir 'omt-probe.stdout.txt'
+        $omtProbeStderr = Join-Path $logDir 'omt-probe.stderr.txt'
+        Remove-Item -LiteralPath $omtProbeStdout, $omtProbeStderr -ErrorAction SilentlyContinue
+        $omtProbe = Start-Process -FilePath $probeExe -ArgumentList @("`"$omtAddress`"", '16') `
+            -RedirectStandardOutput $omtProbeStdout -RedirectStandardError $omtProbeStderr `
+            -WindowStyle Hidden -PassThru
+    }
     Start-Sleep -Milliseconds 250
 
     $firstSender = @(
         '-hide_banner', '-loglevel', 'error',
         '-re', '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=25',
         '-re', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
-        '-re', '-f', 'lavfi', '-i', 'anullsrc=channel_layout=5.1:sample_rate=48000',
+        '-re', '-f', 'lavfi', '-i', 'aevalsrc=0|0|0|0|0|0.15*sin(2*PI*330*t):s=48000:channel_layout=5.1',
         '-t', '5', '-map', '0:v:0', '-map', '1:a:0', '-map', '2:a:0',
         '-c:v', 'mpeg2video', '-threads:v', '1', '-g', '25', '-b:v', '1M',
         '-c:a:0', 'mp2', '-b:a:0', '192k', '-ac:a:0', '2',
@@ -140,10 +181,41 @@ try {
             throw "The second connection produced no audio output. See $stdout"
         }
     }
+    if ($SpoutName -and
+        ($output -notmatch 'spout received=[1-9]\d* sent=[1-9]\d*' -or
+         $output -match 'error Spout output:')) {
+        throw "Spout did not send decoded video. See $stdout and $stderr"
+    }
+    if ($spoutProbe) {
+        $spoutProbe | Wait-Process -Timeout 20
+        $spoutProbe.Refresh()
+        $probeOutput = Get-Content -LiteralPath $probeStdout -Raw
+        if ($spoutProbe.ExitCode -ne 0 -or
+            $probeOutput -notmatch 'spoutProbe frames=[1-9]\d* size=\d+x\d+ pixelSampleSum=[1-9]\d*') {
+            throw "Spout receiver did not obtain image pixels. See $probeStdout and $probeStderr"
+        }
+    }
+    if ($omtProbe) {
+        $omtProbe | Wait-Process -Timeout 20
+        $omtProbe.Refresh()
+        $omtOutput = Get-Content -LiteralPath $omtProbeStdout -Raw
+        if ($omtProbe.ExitCode -ne 0 -or
+            $omtOutput -notmatch 'omtProbe video=[1-9]\d* audio=[1-9]\d* size=\d+x\d+ channels=2 pixelSampleSum=[1-9]\d* audioSampleSum=') {
+            throw "OMT receiver did not obtain video and routed audio. See $omtProbeStdout and $omtProbeStderr"
+        }
+    }
     Write-Host 'SRT loopback passed: video, stereo and 5.1 audio, PTS, disconnect and reconnect.'
     Write-Host "Log: $stdout"
 }
 finally {
     $receiver.Refresh()
     if (-not $receiver.HasExited) { Stop-Process -Id $receiver.Id -Force }
+    if ($spoutProbe) {
+        $spoutProbe.Refresh()
+        if (-not $spoutProbe.HasExited) { Stop-Process -Id $spoutProbe.Id -Force }
+    }
+    if ($omtProbe) {
+        $omtProbe.Refresh()
+        if (-not $omtProbe.HasExited) { Stop-Process -Id $omtProbe.Id -Force }
+    }
 }

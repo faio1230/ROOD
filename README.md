@@ -1,6 +1,6 @@
 # ROOD（Studio Sandix 開発コード）
 
-ROODは、SRTの受信・分配・接続状況の監視に特化したWindowsアプリです。受信した映像・音声を同期し、映像はSpout2とOMT、音声はASIO／WASAPIとOMTへ出力する構想です。エンジンはQt 6 Widgetsの画面から独立させ、将来の画面なしLinux版でも再利用します。現段階ではSRT配信機能を開発範囲に含めません。
+ROODは、SRTの受信・分配・接続状況の監視に特化したWindowsアプリです。受信した映像・音声を同期し、映像はSpout2とOMT、音声はASIO／WASAPIとOMTへ出力します。エンジンはQt 6 Widgetsの画面から独立させ、将来の画面なしLinux版でも再利用します。現段階ではSRT配信機能を開発範囲に含めません。
 
 ## 現在できること
 
@@ -9,8 +9,10 @@ ROODは、SRTの受信・分配・接続状況の監視に特化したWindowsア
 - PortAudio開発ファイルが見つかる環境では、デバイス列挙、WASAPI共有／排他の形式確認、無音出力時のタイムスタンプ確認ができます。
 - 開発用CLI `rood_ingest` がSRT listenerでMPEG-TSを受信し、FFmpegで映像と複数音声トラックを分離・デコードします。ストリームID、チャンネル構成、PTS、受信統計を表示し、切断後は再び待ち受けます。
 - `rood_ingest` に音声デバイスを指定すると、各トラックのチャンネルを任意の出力チャンネルへ割り当て、必要なサンプルレート変換を行ってPortAudioのWASAPI／ASIOデバイスへ出力できます。出力遅延をミリ秒で指定できます。
+- `rood_ingest` にSpout名を指定すると、デコード映像をSpout2へ出力できます。音声デバイスを同時指定した場合は、音声コールバックの推定メディア時刻に映像を合わせます。
+- `rood_ingest` にOMT名を指定すると、映像と、複数トラックから最大32チャンネルへルーティングした音声をOMTへ出力できます。双方の元PTSをOMTタイムスタンプへ渡します。
 
-**長時間のクロック差補正、映像／音声の出力同期、Spout／OMT出力は未実装です。** GUIにも受信開始操作はありません。受信エンジンは現時点でMPEG-TSとlistenerモードに限定されます。音声は出力時刻に対して整列させていますが、長時間のドリフト補正はまだ行いません。
+**長時間のクロック差補正は未実装です。** GUIにも受信開始操作はありません。受信エンジンは現時点でMPEG-TSとlistenerモードに限定されます。映像と音声の同期時刻はPortAudioコールバックから推定しており、物理出力時刻の測定値ではありません。
 
 ## Windows MSVC + Qt 6での開発
 
@@ -37,7 +39,7 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 ./scripts/build-media-msvc.cmd
 ```
 
-`vcpkg.json` はlibsrt 1.5.6とFFmpeg 8.1.2の共有ライブラリ構成を固定します。FFmpegは `avcodec`、`avformat`、`swresample`、`swscale` のみを指定し、GPL／nonfreeの追加機能を選びません。Spout2は2.007.017のソースを固定してMSVCで構築し、OMTはv1.0.0.16の公式Windows x64配布物をSHA-256で確認します。libsrtとFFmpegは受信エンジンに接続済みで、Spout2とOMTの出力は今後実装します。
+`vcpkg.json` はlibsrt 1.5.6とFFmpeg 8.1.2の共有ライブラリ構成を固定します。FFmpegは `avcodec`、`avformat`、`swresample`、`swscale` のみを指定し、GPL／nonfreeの追加機能を選びません。Spout2は2.007.017のソースを固定してMSVCで構築し、OMTはv1.0.0.16の公式Windows x64配布物をSHA-256で確認します。Spout2とOMTの出力は開発用CLIから利用できます。
 
 `build-media-msvc.cmd` は全ライブラリをリンクする `rood_deps_probe` を起動します。このPCではFFmpeg DLLが `LGPL version 2.1 or later` と報告し、libsrt・Spout2・OMTのシンボルも解決できました。
 
@@ -55,9 +57,15 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 ./scripts/run-ingest-msvc.cmd --port 9000 --audio-device 12 --audio-channels 2 --audio-rate 48000 --audio-delay 250 --route 257:0:0 --route 257:1:1 --route 258:5:1:0.5
 ./scripts/test-srt-loopback.ps1 -AudioDevice 12
 ./scripts/test-srt-loopback.ps1 -AudioDevice 12 -WasapiExclusive
+./scripts/test-srt-loopback.ps1 -AudioDevice 12 -SpoutName ROOD-Loopback
+./scripts/test-srt-loopback.ps1 -AudioDevice 12 -SpoutName ROOD-Loopback -OmtName ROOD-Loopback
 ```
 
 デコードスレッドはチャンネルを時刻付きの有界リングバッファに配置し、PortAudioコールバックは用意済みのfloat32 PCMを読むだけです。キュー競合、入力不足、未着トラックは無音になります。診断出力の `renderedFrames` はコールバックがメディアの入ったフレーム位置を読んだ数で、実際の物理出力を測定した値ではありません。
+
+Spout出力のみを試す場合は `./scripts/run-ingest-msvc.cmd --port 9000 --spout ROOD` を使います。`--video-delay`、`--video-offset`、`--video-late-drop` はミリ秒単位です。音声デバイスを同時指定すると音声コールバックの推定メディア時刻を映像の基準に使います。デコードスレッドがRGBAに変換して有界キューへ入れ、別スレッドが表示時刻に合わせて送信します。`-SpoutName` 付きループバックでは別プロセスのSpout受信器が画像画素を取得したことまで確認します。
+
+OMT出力の例は `./scripts/run-ingest-msvc.cmd --port 9000 --omt ROOD --omt-channels 2 --omt-rate 48000 --omt-delay 250 --omt-route 257:0:0 --omt-route 258:5:1` です。OMT出力は映像BGRAと最大32チャンネルの平面float32音声を出します。別プロセスの受信プローブで映像画素と両音声チャンネルの非無音サンプルを確認済みです。音声デバイスとOMTの時刻基準は現時点では別なので、同時出力の長時間同期は未検証です。
 
 別の端末からSRT callerでMPEG-TSを送ります。`--seconds 20` で自動終了、Ctrl+Cでも停止できます。任意のポートを使うループバック検証は、FFmpeg CLIがある環境で次を実行します。
 

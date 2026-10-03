@@ -219,6 +219,10 @@ void receiveSession(SRTSOCKET socket, std::atomic_bool& stop, MediaReceiverObser
         track.sampleRate = parameters->sample_rate;
         track.width = parameters->width;
         track.height = parameters->height;
+        const AVRational frameRate = stream->avg_frame_rate.num > 0
+            ? stream->avg_frame_rate : stream->r_frame_rate;
+        track.frameRateNum = frameRate.num;
+        track.frameRateDen = frameRate.den > 0 ? frameRate.den : 1;
         track.timeBaseNum = stream->time_base.num;
         track.timeBaseDen = stream->time_base.den;
         observer.onTrack(track);

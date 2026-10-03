@@ -23,6 +23,8 @@ struct TrackInfo {
     int sampleRate = 0;
     int width = 0;
     int height = 0;
+    int frameRateNum = 0;
+    int frameRateDen = 1;
     int timeBaseNum = 0;
     int timeBaseDen = 1;
 };

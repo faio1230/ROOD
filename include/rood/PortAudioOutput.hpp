@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 struct AVFrame;
@@ -44,6 +45,9 @@ public:
     void pushFrame(const FrameInfo& info, const AVFrame& frame);
     void reset();
     AudioOutputStats stats() const;
+    // Estimated source PTS currently consumed by the callback. This uses the
+    // callback sample count and is not a measured physical DAC presentation time.
+    std::optional<double> playbackMediaSeconds() const noexcept;
 
 private:
     class Impl;
