@@ -227,6 +227,7 @@ $qtBinaryAudit = foreach ($binary in @(
     if (-not $checksum.Success) { throw "Qt SBOM SHA1 is missing: $($binary.SbomPath)" }
     $stagedPath = Join-Path $stage $binary.StagePath
     $signature = Get-AuthenticodeSignature -LiteralPath $stagedPath
+    $reconstruction = & (Join-Path $PSScriptRoot 'measure-pe-without-certificate.ps1') -Path $stagedPath
     $expected = $checksum.Groups['hash'].Value.ToLowerInvariant()
     $actual = (Get-FileHash -LiteralPath $stagedPath -Algorithm SHA1).Hash.ToLowerInvariant()
     [pscustomobject]@{
@@ -234,6 +235,10 @@ $qtBinaryAudit = foreach ($binary in @(
         sbomSha1 = $expected
         stagedSha1 = $actual
         sha1Matches = ($expected -eq $actual)
+        reconstructedSha1 = $reconstruction.reconstructedSha1
+        reconstructedSha1Matches = ($expected -eq $reconstruction.reconstructedSha1)
+        certificateOffset = $reconstruction.certificateOffset
+        certificateBytes = $reconstruction.certificateBytes
         signatureStatus = [string]$signature.Status
         signer = if ($signature.SignerCertificate) { $signature.SignerCertificate.Subject } else { $null }
     }
@@ -258,10 +263,13 @@ $entries += [pscustomobject]@{
     sha256 = (Get-FileHash -LiteralPath $qtInventoryPath -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 $qtMismatchCount = @($qtBinaryAudit | Where-Object { -not $_.sha1Matches }).Count
+$qtReconstructionMismatchCount = @($qtBinaryAudit | Where-Object { -not $_.reconstructedSha1Matches }).Count
 $qtChecksumStatus = if ($qtMismatchCount -eq 0) {
     'All four staged Qt binary SHA-1 values match their SBOM entries.'
+} elseif ($qtReconstructionMismatchCount -eq 0) {
+    "The $qtMismatchCount raw Qt DLL hashes differ from the SBOM. All four SHA-1 values match after removing the end-of-file PE certificate table and zeroing the certificate directory and checksum."
 } else {
-    "The Qt SBOM audit found $qtMismatchCount mismatches among four staged DLLs."
+    "The Qt SBOM audit found $qtMismatchCount raw DLL mismatches; $qtReconstructionMismatchCount remain after removing the PE signing fields."
 }
 
 $commit = (& git -C $repo rev-parse HEAD).Trim()
@@ -279,6 +287,7 @@ $manifest = [ordered]@{
     qtOfficialArchiveSha256 = $qtArchiveSha256
     qtStagedFilesMatchOfficialArchive = $true
     qtSbomBinaryChecksumsMatch = ($qtMismatchCount -eq 0)
+    qtSbomReconstructedChecksumsMatch = ($qtReconstructionMismatchCount -eq 0)
     qtThirdPartySbomPackageCount = $qtInventory.packageCount
     qtThirdPartySbomUnassertedCount = $qtUnassertedCount
     ffmpegSourceArchiveSha512 = $ffmpegArchiveSha512
@@ -303,8 +312,8 @@ Before public distribution:
   The bundled Qt DLLs and SBOM were compared byte-for-byte with the pinned
   official binary archive under source/Qt; all five files match that archive.
   $qtChecksumStatus
-  The per-file comparison is in licenses/Qt-SBOM-CHECKSUM-AUDIT.json. A valid
-  Authenticode signature alone does not establish the reason for a mismatch.
+  The per-file comparison is in licenses/Qt-SBOM-CHECKSUM-AUDIT.json.
+  The reconstruction is a flat SHA-1 comparison, not an Authenticode digest.
   The Qt SBOM dependency inventory lists $($qtInventory.packageCount) third-party packages,
   including $qtUnassertedCount with no license conclusion. See licenses/Qt-THIRD-PARTY-SBOM-INVENTORY.json;
   review actual inclusion and the full notices in the bundled SPDX and source.
