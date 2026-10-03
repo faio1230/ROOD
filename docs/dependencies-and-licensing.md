@@ -12,7 +12,7 @@
 | OMT (`libomt` / `libvmx`) | ローカル取得済み | 公式Windows x64配布v1.0.0.16、ZIP SHA-256 `C70E67F7E2A7ED5B4C389D99AF62796A8C9C7BE23C8DEBFAE3FD8020C1DC66B9`、同梱MITライセンス |
 | Steinberg ASIO SDK | ローカル検証用に取得 | 公式配布2.3.4、ZIP SHA-256 `D5EBF0C20DD2C5F43771FD0C1418F4B361BF52434EE670097CFA6B3A335E2ECA`。SDKをこのリポジトリへコピーしない |
 
-OMTの[公式プロジェクト](https://github.com/openmediatransport)はMITライセンスを掲げています。C/C++向けの[`libomt`](https://github.com/openmediatransport/libomt)はCエクスポートを持つ共有ライブラリで、映像圧縮に[`libvmx`](https://github.com/openmediatransport/libvmx)を使います。[公式のバイナリ配布](https://github.com/openmediatransport/libomtnet/releases/tag/v1.0.0.16)を取得しましたが、ROODとのAPI結合は未実装です。
+OMTの[公式プロジェクト](https://github.com/openmediatransport)はMITライセンスを掲げています。C/C++向けの[`libomt`](https://github.com/openmediatransport/libomt)はCエクスポートを持つ共有ライブラリで、映像圧縮に[`libvmx`](https://github.com/openmediatransport/libvmx)を使います。[公式のバイナリ配布](https://github.com/openmediatransport/libomtnet/releases/tag/v1.0.0.16)を取得し、ROODから送信した映像と2チャンネル音声を別プロセスで受信確認しました。
 
 FFmpeg公式の[法務・ライセンス案内](https://ffmpeg.org/legal.html)は、LGPL構成ではGPL・nonfreeオプションを使わず、WindowsではDLLでリンクする方法を示しています。このPCの既存FFmpeg CLIは `--enable-gpl` 付きで、しかも開発ヘッダーがありません。プロジェクトの依存には採用しません。
 
