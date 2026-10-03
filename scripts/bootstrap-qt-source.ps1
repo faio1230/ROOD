@@ -4,6 +4,7 @@ $directory = Join-Path $repo 'build/deps/qt-source'
 $archive = Join-Path $directory 'qtbase-everywhere-src-6.10.3.tar.xz'
 $url = 'https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz'
 $expected = '383dc907816338f0cba72088a524c07458dfc69ce684ca9132fcc4fe91c24b0b'
+$expectedCommit = '7ddbc87d8e14ce51d2957ea72d0a6077593d5ff4'
 
 New-Item -ItemType Directory -Path $directory -Force | Out-Null
 if (-not (Test-Path -LiteralPath $archive)) {
@@ -19,6 +20,10 @@ $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInv
 if ($actual -ne $expected) {
     throw "Qt source archive hash mismatch: $actual"
 }
+$archiveCommit = (& tar -xOf $archive qtbase-everywhere-src-6.10.3/.tag).Trim()
+if ($LASTEXITCODE -ne 0 -or $archiveCommit -ne $expectedCommit) {
+    throw "Qt source commit mismatch: $archiveCommit"
+}
 $licenseDir = Join-Path $directory 'LICENSES'
 & tar -xf $archive -C $directory --strip-components=1 `
     qtbase-everywhere-src-6.10.3/LICENSES
@@ -28,4 +33,11 @@ if (-not (Test-Path -LiteralPath (Join-Path $licenseDir 'LGPL-3.0-only.txt')) -o
     (Get-ChildItem -LiteralPath $licenseDir -File).Count -ne 38) {
     throw 'Qt license texts were not found in the verified source archive.'
 }
+@(
+    'Qt qtbase 6.10.3 source archive'
+    "URL: $url"
+    "SHA-256: $expected"
+    "Git commit (.tag): $expectedCommit"
+    'The installed Qt binary SBOM names the same qtbase commit.'
+) | Set-Content -LiteralPath (Join-Path $directory 'SOURCE-REFERENCE.txt') -Encoding utf8
 Write-Host "Qt 6.10.3 qtbase source and license texts verified: $directory"

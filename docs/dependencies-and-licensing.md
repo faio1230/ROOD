@@ -34,7 +34,7 @@ SteinbergはASIO SDKについて[オープンソース版とプロプライエ�
 
 `windows-msvc-media-asio-test` はSDK 2.3.4を使うローカル検証用です。取得したSDKの `LICENSE.txt` はGPLv3とSteinberg独自ライセンスを選択肢として記載し、独自ライセンスでの公開にはSteinbergが署名した契約書を求めています。ASIO対応バイナリを出す場合は、GPLv3に沿う配布構成を整えるか、Steinbergとの契約を取得するかを先に決めます。どちらの場合もSDK内の各ファイルにある個別のライセンス表示を確認します。現時点でASIO検証版を配布物に転用しません。
 
-`scripts/bootstrap-qt-source.ps1` は[Qt公式のqtbase 6.10.3ソース](https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz.mirrorlist)をSHA-256 `383dc907816338f0cba72088a524c07458dfc69ce684ca9132fcc4fe91c24b0b` で確認し、ライセンス本文38件を取り出します。`scripts/stage-windows-release.ps1` はWASAPI専用ReleaseビルドからGUI・CLI、依存DLL、これらのQtライセンス本文とQt公式バイナリに含まれる2つのSPDX文書をローカル確認用フォルダーへ集めます。各ファイルのSHA-256とGit作業ツリーの状態を記録し、依存診断、PortAudioのASIO非列挙、SRT待受、GUI起動を開発用DLLパスなしで確認します。QtのSBOMと同梱DLLの照合、ソース提供方法、WindowsのVCランタイムがない機械での起動は未確認です。フォルダー内の `STAGING-STATUS.txt` はこれらを公開前の不足として明記します。このローカル確認は公開可否の承認ではありません。
+`scripts/bootstrap-qt-source.ps1` は[Qt公式のqtbase 6.10.3ソース](https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz.mirrorlist)をSHA-256 `383dc907816338f0cba72088a524c07458dfc69ce684ca9132fcc4fe91c24b0b` で確認し、ライセンス本文38件を取り出します。アーカイブの `.tag` と導入済みバイナリのSBOMには同じcommit `7ddbc87d8e14ce51d2957ea72d0a6077593d5ff4` が記録されています。`scripts/stage-windows-release.ps1` はWASAPI専用ReleaseビルドからGUI・CLI、依存DLL、Qtライセンス本文、2つのSPDX文書とソース参照情報をローカル確認用フォルダーへ集めます。FFmpegについては、vcpkgのポートが指定するSHA-512と一致する8.1.2のソースアーカイブ、14件のパッチ、ポート定義、Releaseビルド時に生成した設定ファイルも保存します。各ファイルのSHA-256とGit作業ツリーの状態を記録し、依存診断、PortAudioのASIO非列挙、SRT待受、GUI起動を開発用DLLパスなしで確認します。Qtの第三者通知と同梱DLLの照合、公開時のソース提供方法、WindowsのVCランタイムがない機械での起動は未確認です。フォルダー内の `STAGING-STATUS.txt` はこれらを公開前の不足として明記します。このローカル確認は公開可否の承認ではありません。
 
 | 対象 | 現在の確認結果 | 公開前に実施すること |
 | --- | --- | --- |

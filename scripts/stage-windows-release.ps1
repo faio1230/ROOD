@@ -13,6 +13,12 @@ $qtSource = Join-Path $dependencies 'qt-source'
 $qtSourceArchive = Join-Path $qtSource 'qtbase-everywhere-src-6.10.3.tar.xz'
 $qtSourceSha256 = '383dc907816338f0cba72088a524c07458dfc69ce684ca9132fcc4fe91c24b0b'
 $qtSourceUrl = 'https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz'
+$qtSourceCommit = '7ddbc87d8e14ce51d2957ea72d0a6077593d5ff4'
+$ffmpegArchive = Join-Path $dependencies 'vcpkg-src/downloads/ffmpeg-ffmpeg-n8.1.2.tar.gz'
+$ffmpegArchiveSha512 = 'c72f4062aecc16d8b2b1e8678d5efe3af4cfaa0cc7c0997052248f9e499e60c2463acf07877cf3b78b246ce3e8078cb043e8d97e90a6b50d06af32ff7369a788'
+$ffmpegPort = Join-Path $dependencies 'vcpkg-src/ports/ffmpeg'
+$ffmpegBuild = Join-Path $dependencies 'vcpkg-src/buildtrees/ffmpeg/x64-windows-rel'
+$vcpkgRevision = '9e593bb18ea69cc5095e012465dcd675a822ed0d'
 $cache = Join-Path $build 'CMakeCache.txt'
 $paCache = Join-Path $dependencies 'portaudio-msvc-build/CMakeCache.txt'
 if (-not (Test-Path -LiteralPath $cache) -or
@@ -34,6 +40,30 @@ if (-not (Test-Path -LiteralPath (Join-Path $qtLicenses 'LGPL-3.0-only.txt')) -o
     (Get-ChildItem -LiteralPath $qtLicenses -File).Count -ne 38) {
     throw 'Qt license texts are missing. Run scripts/bootstrap-qt-source.ps1.'
 }
+$qtSbom = Join-Path $qt 'sbom/qtbase-6.10.3.spdx'
+if (-not (Test-Path -LiteralPath $qtSbom) -or
+    -not (Select-String -LiteralPath $qtSbom -Pattern $qtSourceCommit -SimpleMatch -Quiet)) {
+    throw 'Qt binary SBOM does not match the verified source commit.'
+}
+$actualVcpkgRevision = (& git -C (Join-Path $dependencies 'vcpkg-src') rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $actualVcpkgRevision -ne $vcpkgRevision -or
+    (Get-Content -LiteralPath (Join-Path $repo 'vcpkg.json') -Raw | ConvertFrom-Json).'builtin-baseline' -ne $vcpkgRevision) {
+    throw 'vcpkg checkout and manifest do not match the pinned revision.'
+}
+if (-not (Test-Path -LiteralPath $ffmpegArchive) -or
+    (Get-FileHash -LiteralPath $ffmpegArchive -Algorithm SHA512).Hash.ToLowerInvariant() -ne $ffmpegArchiveSha512) {
+    throw 'FFmpeg source archive is missing or does not match the pinned vcpkg port.'
+}
+$ffmpegPortfile = Join-Path $ffmpegPort 'portfile.cmake'
+$portText = Get-Content -LiteralPath $ffmpegPortfile -Raw
+if ($portText -notmatch [regex]::Escape($ffmpegArchiveSha512)) {
+    throw 'FFmpeg portfile has a different source archive hash.'
+}
+$patchBlock = [regex]::Match($portText, '(?ms)^\s*PATCHES\s*\r?\n(?<names>.*?)^\)')
+if (-not $patchBlock.Success) { throw 'Could not read the FFmpeg port patch list.' }
+$ffmpegPatches = @([regex]::Matches($patchBlock.Groups['names'].Value, '(?m)^\s*(\S+\.patch)(?:\s+#.*)?$') |
+    ForEach-Object { $_.Groups[1].Value })
+if ($ffmpegPatches.Count -ne 14) { throw 'The FFmpeg port patch list has changed.' }
 
 $stageRoot = Join-Path $repo 'build/stage'
 New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
@@ -71,7 +101,21 @@ $files = @(
     @{ Source = (Join-Path $omt 'LICENSE.txt'); Target = 'licenses/OMT-LICENSE.txt'; Component = 'OMT v1.0.0.16' }
     @{ Source = (Join-Path $qt 'sbom/qtbase-6.10.3.spdx'); Target = 'licenses/Qt-qtbase-6.10.3.spdx'; Component = 'Qt 6.10.3' }
     @{ Source = (Join-Path $qt 'sbom/qtbase-6.10.3.source.spdx'); Target = 'licenses/Qt-qtbase-6.10.3.source.spdx'; Component = 'Qt 6.10.3' }
+    @{ Source = (Join-Path $qtSource 'SOURCE-REFERENCE.txt'); Target = 'licenses/Qt-SOURCE-REFERENCE.txt'; Component = 'Qt 6.10.3' }
+    @{ Source = $ffmpegArchive; Target = 'source/FFmpeg/ffmpeg-n8.1.2.tar.gz'; Component = 'FFmpeg 8.1.2 source' }
+    @{ Source = $ffmpegPortfile; Target = 'source/FFmpeg/vcpkg-portfile.cmake'; Component = 'FFmpeg 8.1.2 source' }
+    @{ Source = (Join-Path $repo 'vcpkg.json'); Target = 'source/FFmpeg/rood-vcpkg.json'; Component = 'FFmpeg 8.1.2 source' }
+    @{ Source = (Join-Path $ffmpegBuild 'ffbuild/config.sh'); Target = 'source/FFmpeg/ffbuild-config.sh'; Component = 'FFmpeg 8.1.2 build' }
+    @{ Source = (Join-Path $ffmpegBuild 'ffbuild/config.mak'); Target = 'source/FFmpeg/ffbuild-config.mak'; Component = 'FFmpeg 8.1.2 build' }
+    @{ Source = (Join-Path $ffmpegBuild 'config.h'); Target = 'source/FFmpeg/config.h'; Component = 'FFmpeg 8.1.2 build' }
 )
+foreach ($patch in $ffmpegPatches) {
+    $files += @{
+        Source = (Join-Path $ffmpegPort $patch)
+        Target = "source/FFmpeg/patches/$patch"
+        Component = 'FFmpeg 8.1.2 source'
+    }
+}
 foreach ($license in (Get-ChildItem -LiteralPath $qtLicenses -File | Sort-Object Name)) {
     $files += @{
         Source = $license.FullName
@@ -106,6 +150,9 @@ $manifest = [ordered]@{
     gitDirty = $gitDirty
     qtSourceUrl = $qtSourceUrl
     qtSourceSha256 = $qtSourceSha256
+    qtSourceCommit = $qtSourceCommit
+    ffmpegSourceArchiveSha512 = $ffmpegArchiveSha512
+    vcpkgRevision = $vcpkgRevision
     publishable = $false
     files = $entries
 }
@@ -119,9 +166,12 @@ PortAudio build and contains no Steinberg ASIO SDK or ASIO-enabled binary.
 Before public distribution:
 - Decide and add the license and copyright notice for ROOD-owned code.
 - Review the bundled Qt license texts and binary/source SBOMs against the DLLs.
-  Arrange access to the exact matching Qt source; the verified qtbase 6.10.3
-  archive is saved locally under build/deps/qt-source.
+  The verified qtbase 6.10.3 source archive and matching SBOM commit are
+  recorded in licenses/Qt-SOURCE-REFERENCE.txt; confirm the public source
+  access method and third-party notices before distribution.
 - Review all bundled notices and matching FFmpeg/libsrt/Qt source and build data.
+  FFmpeg's exact source archive, vcpkg patch set and generated Release build
+  configuration are retained under source/FFmpeg for review.
 - Verify the required Microsoft Visual C++ runtime on a clean Windows machine.
 - Complete hardware ASIO, physical AV timing and active device-removal testing.
 

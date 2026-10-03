@@ -42,7 +42,7 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 
 最適化したWASAPI版の確認には `./scripts/build-media-release-msvc.cmd` を使います。Debug版とは別の `build/msvc-media-release` に出力し、同じ固定済み依存でビルドとCTestを実行します。起動は `./scripts/run-gui-release-msvc.cmd` です。ASIO SDKはこの構成に入りません。
 
-公開前の依存ファイル確認には `./scripts/bootstrap-qt-source.ps1` の後で `./scripts/stage-windows-release.ps1` を使います。[Qt公式のqtbase 6.10.3ソース](https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz.mirrorlist)をSHA-256で照合し、ライセンス本文を取り出します。確認用フォルダーにはRelease版GUI・CLI、必要なDLL、第三者ライセンス文書、QtのSBOM、ファイルのSHA-256一覧を集めます。依存診断・PortAudioのASIO非列挙・SRT待受・GUI起動を最小限のPATHで確認します。**この確認用フォルダーは配布物ではありません。** 自作コードのライセンス、QtのSBOMと同梱DLLの照合、クリーンなWindows機でのVCランタイム確認など、残る項目はフォルダー内の `STAGING-STATUS.txt` に示します。
+公開前の依存ファイル確認には `./scripts/bootstrap-qt-source.ps1` の後で `./scripts/stage-windows-release.ps1` を使います。[Qt公式のqtbase 6.10.3ソース](https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz.mirrorlist)をSHA-256で照合し、ライセンス本文を取り出します。確認用フォルダーにはRelease版GUI・CLI、必要なDLL、第三者ライセンス文書、QtのSBOM、FFmpeg 8.1.2のソース・vcpkgパッチ・Releaseビルド設定、ファイルのSHA-256一覧を集めます。依存診断・PortAudioのASIO非列挙・SRT待受・GUI起動を最小限のPATHで確認します。**この確認用フォルダーは配布物ではありません。** 自作コードのライセンス、QtのSBOMと同梱DLLの照合、クリーンなWindows機でのVCランタイム確認など、残る項目はフォルダー内の `STAGING-STATUS.txt` に示します。
 
 `vcpkg.json` はlibsrt 1.5.6とFFmpeg 8.1.2の共有ライブラリ構成を固定します。FFmpegは `avcodec`、`avformat`、`swresample`、`swscale` のみを指定し、GPL／nonfreeの追加機能を選びません。Spout2は2.007.017のソースを固定してMSVCで構築し、OMTはv1.0.0.16の公式Windows x64配布物をSHA-256で確認します。Spout2とOMTの出力は開発用CLIから利用できます。
 
