@@ -15,7 +15,7 @@
 - VASIO-8の48 kHz / 8チャンネルは形式照会が対応と返しましたが、`Pa_OpenStream` は `Invalid sample rate` で失敗しました。
 - MSVC版PortAudioでも、VASIO-32の32チャンネル、44.1 kHzで3秒の無音出力が成功しました。146 callback、underflow 0、DAC時刻の後退0、報告遅延23.22 msでした。
 - その後、コールバックが消費したフレーム総数を壁時計で割って確認しました。VASIO-32の32チャンネル・44.1 kHzは10秒で247,296フレーム、**実効約24,528 frames/s**でした。PortAudioの報告レート44,100 Hzと大きく異なり、underflowと時刻後退は0でした。VASIO-32の16チャンネルとVASIO-8の8チャンネルも約24,400 frames/sです。同じ計測をした別の仮想WASAPI出力は48,000 Hzに対し約48,085 frames/sでした。PortAudioが返す時刻の連続性だけではクロック速度の誤りを発見できません。
-- 別のVB-Audioドライバ `Voicemeeter Virtual ASIO` でも、8チャンネル・44.1 kHzの形式照会と開設は成功しました。しかし現行MSVCプローブで10秒間に249,344フレーム、**実効約24,764 frames/s**でした。underflowと時刻後退は0で、5%超の速度差を理由にプローブは終了コード1を返しました。このPCではVB-Matrix以外の仮想ASIOでも同じ速度異常が再現します。
+- 別のVB-Audioドライバ `Voicemeeter Virtual ASIO` でも、8チャンネル・44.1 kHzの形式照会と開設は成功しました。しかし現行MSVCプローブで10秒間に249,344フレーム、**実効約24,764 frames/s**でした。underflowと時刻後退は0で、5%超の速度差を理由にプローブは終了コード1を返しました。48 kHzは形式照会で対応と出ましたが、開設時に `Invalid sample rate` で失敗しました。このPCではVB-Matrix以外の仮想ASIOでも速度異常と形式照会・開設の不一致が再現します。
 - MSVC版WASAPIでVB-Audio Virtual Cable（ID 12）の共有・排他を48 kHz / 2チャンネルで3秒ずつ再試験しました。共有303 callback、排他302 callback、どちらもunderflow 0。DAC時刻はcallback 2で共有が約8.0 ms、排他が約1.6 ms後退しました。報告遅延は共有22 ms、排他12 msでした。
 
 WASAPI排他モードで時刻が後退したため、`outputBufferDacTime` を無条件に連続時刻として使う設計にはしません。ASIOについても `Pa_IsFormatSupported` の結果だけでは開設可否を決められません。これらの数値はドライバ・機器・同時利用状況に依存します。無音出力が成功しても、各チャンネルの実際の行き先、物理DAC時刻、長時間ドリフトは未検証です。
