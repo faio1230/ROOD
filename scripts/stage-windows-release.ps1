@@ -5,6 +5,9 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $build = Join-Path $repo 'build/msvc-media-release'
 $dependencies = Join-Path $repo 'build/deps'
 $qt = Join-Path $dependencies 'qt/6.10.3/msvc2022_64'
+$qtArchiveName = 'qtbase-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z'
+$qtArchive = Join-Path $dependencies "qt-archives/$qtArchiveName"
+$qtArchiveSha256 = '4db84dee7fe3c558f242bef0a88852613af76580dc6d2b24596479f47004dad7'
 $vcpkg = Join-Path $dependencies 'vcpkg-installed/x64-windows'
 $pa = Join-Path $dependencies 'portaudio-msvc-install'
 $spout = Join-Path $dependencies 'spout2-msvc-install'
@@ -48,6 +51,10 @@ $qtSbom = Join-Path $qt 'sbom/qtbase-6.10.3.spdx'
 if (-not (Test-Path -LiteralPath $qtSbom) -or
     -not (Select-String -LiteralPath $qtSbom -Pattern $qtSourceCommit -SimpleMatch -Quiet)) {
     throw 'Qt binary SBOM does not match the verified source commit.'
+}
+if (-not (Test-Path -LiteralPath $qtArchive) -or
+    (Get-FileHash -LiteralPath $qtArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $qtArchiveSha256) {
+    throw 'Qt binary archive is missing or differs from the pinned official package. Run scripts/bootstrap-qt.ps1.'
 }
 $actualVcpkgRevision = (& git -C (Join-Path $dependencies 'vcpkg-src') rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $actualVcpkgRevision -ne $vcpkgRevision -or
@@ -120,6 +127,7 @@ $files = @(
     @{ Source = (Join-Path $qt 'sbom/qtbase-6.10.3.spdx'); Target = 'licenses/Qt-qtbase-6.10.3.spdx'; Component = 'Qt 6.10.3' }
     @{ Source = (Join-Path $qt 'sbom/qtbase-6.10.3.source.spdx'); Target = 'licenses/Qt-qtbase-6.10.3.source.spdx'; Component = 'Qt 6.10.3' }
     @{ Source = (Join-Path $qtSource 'SOURCE-REFERENCE.txt'); Target = 'licenses/Qt-SOURCE-REFERENCE.txt'; Component = 'Qt 6.10.3' }
+    @{ Source = $qtArchive; Target = "source/Qt/$qtArchiveName"; Component = 'Qt 6.10.3 binary provenance' }
     @{ Source = $ffmpegArchive; Target = 'source/FFmpeg/ffmpeg-n8.1.2.tar.gz'; Component = 'FFmpeg 8.1.2 source' }
     @{ Source = $ffmpegPortfile; Target = 'source/FFmpeg/vcpkg-portfile.cmake'; Component = 'FFmpeg 8.1.2 source' }
     @{ Source = (Join-Path $repo 'vcpkg.json'); Target = 'source/FFmpeg/rood-vcpkg.json'; Component = 'FFmpeg 8.1.2 source' }
@@ -167,6 +175,40 @@ $entries = foreach ($file in $files) {
         sha256 = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
     }
 }
+
+$qtArchiveFiles = @(
+    'bin/Qt6Core.dll'
+    'bin/Qt6Gui.dll'
+    'bin/Qt6Widgets.dll'
+    'plugins/platforms/qwindows.dll'
+    'sbom/qtbase-6.10.3.spdx'
+)
+$qtRawDir = Join-Path $stage '.qt-archive-verification'
+New-Item -ItemType Directory -Path $qtRawDir | Out-Null
+& tar -xf $qtArchive -C $qtRawDir -- $qtArchiveFiles
+if ($LASTEXITCODE -ne 0) { throw 'Could not extract the Qt files from the pinned official archive.' }
+foreach ($pair in @(
+    @{ Archive = 'bin/Qt6Core.dll'; Staged = 'Qt6Core.dll' }
+    @{ Archive = 'bin/Qt6Gui.dll'; Staged = 'Qt6Gui.dll' }
+    @{ Archive = 'bin/Qt6Widgets.dll'; Staged = 'Qt6Widgets.dll' }
+    @{ Archive = 'plugins/platforms/qwindows.dll'; Staged = 'platforms/qwindows.dll' }
+    @{ Archive = 'sbom/qtbase-6.10.3.spdx'; Staged = 'licenses/Qt-qtbase-6.10.3.spdx' }
+)) {
+    $archiveFile = Join-Path $qtRawDir $pair.Archive
+    $stagedFile = Join-Path $stage $pair.Staged
+    if (-not (Test-Path -LiteralPath $archiveFile -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $archiveFile -Algorithm SHA256).Hash -ne
+        (Get-FileHash -LiteralPath $stagedFile -Algorithm SHA256).Hash) {
+        throw "A staged Qt file differs from the pinned official archive: $($pair.Staged)"
+    }
+}
+$resolvedStage = (Resolve-Path -LiteralPath $stage).Path.TrimEnd([IO.Path]::DirectorySeparatorChar)
+$resolvedQtRawDir = (Resolve-Path -LiteralPath $qtRawDir).Path
+if (-not $resolvedQtRawDir.StartsWith($resolvedStage + [IO.Path]::DirectorySeparatorChar,
+        [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Qt verification cleanup path escaped the stage directory.'
+}
+Remove-Item -LiteralPath $resolvedQtRawDir -Recurse -Force
 
 $qtSbomText = Get-Content -LiteralPath $qtSbom -Raw
 $qtBinaryAudit = foreach ($binary in @(
@@ -222,6 +264,8 @@ $manifest = [ordered]@{
     qtSourceUrl = $qtSourceUrl
     qtSourceSha256 = $qtSourceSha256
     qtSourceCommit = $qtSourceCommit
+    qtOfficialArchiveSha256 = $qtArchiveSha256
+    qtStagedFilesMatchOfficialArchive = $true
     qtSbomBinaryChecksumsMatch = ($qtMismatchCount -eq 0)
     ffmpegSourceArchiveSha512 = $ffmpegArchiveSha512
     libsrtSourceArchiveSha512 = $srtArchiveSha512
@@ -242,9 +286,11 @@ Before public distribution:
   The verified qtbase 6.10.3 source archive and matching SBOM commit are
   recorded in licenses/Qt-SOURCE-REFERENCE.txt; confirm the public source
   access method and third-party notices before distribution.
-  $qtChecksumStatus The per-file comparison is in
-  licenses/Qt-SBOM-CHECKSUM-AUDIT.json. A valid Authenticode signature alone
-  does not establish the reason for a mismatch.
+  The bundled Qt DLLs and SBOM were compared byte-for-byte with the pinned
+  official binary archive under source/Qt; all five files match that archive.
+  $qtChecksumStatus
+  The per-file comparison is in licenses/Qt-SBOM-CHECKSUM-AUDIT.json. A valid
+  Authenticode signature alone does not establish the reason for a mismatch.
 - Review all bundled notices and matching FFmpeg/libsrt/Qt source and build data.
   FFmpeg and libsrt source archives, vcpkg patches and Release build settings
   are retained under source/ for review. Confirm their public source access.

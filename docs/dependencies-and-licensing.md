@@ -5,7 +5,7 @@
 | 依存 | 状態 | 版・設定 |
 | --- | --- | --- |
 | PortAudio | ローカル検証用に固定 | v19.7.0、commit `147dd722548358763a8b649b3e4b41dfffbcfbb6`。WASAPI版はASIO OFF、ASIO検証版はASIO/WASAPI ON＋ドライバ限定パッチ |
-| Qt 6 Widgets | ローカル導入済み | 公式MSVC 2022向けQt 6.10.3の `qtbase`。`aqtinstall==3.3.0` で取得、動的リンク。MSVC 2026でビルド・起動確認済み。公式ソースアーカイブのSHA-256は `383dc907816338f0cba72088a524c07458dfc69ce684ca9132fcc4fe91c24b0b` |
+| Qt 6 Widgets | ローカル導入済み | 公式MSVC 2022向けQt 6.10.3の `qtbase`。`aqtinstall==3.3.0` で取得、動的リンク。MSVC 2026でビルド・起動確認済み。公式ソースアーカイブのSHA-256は `383dc907816338f0cba72088a524c07458dfc69ce684ca9132fcc4fe91c24b0b`、公式バイナリアーカイブのSHA-256は `4db84dee7fe3c558f242bef0a88852613af76580dc6d2b24596479f47004dad7` |
 | FFmpeg | vcpkgマニフェストで固定・構築済み | 8.1.2、`avcodec` / `avformat` / `swresample` / `swscale` の共有DLL。実行時ライセンス文字列は `LGPL version 2.1 or later`、GPL／nonfree機能なし |
 | libsrt | vcpkgマニフェストで固定・構築済み | 1.5.6、x64-windows共有ライブラリ。暗号処理はOpenSSL 3.6.3に依存 |
 | Spout2 | ローカル構築済み | 2.007.017、commit `c2bcc12147711d12ace7d5f08e869d774d840f8a`、MSVC `/MD`、BSD-2-Clause |
@@ -34,9 +34,9 @@ SteinbergはASIO SDKについて[オープンソース版とプロプライエ�
 
 `windows-msvc-media-asio-test` はSDK 2.3.4を使うローカル検証用です。取得したSDKの `LICENSE.txt` はGPLv3とSteinberg独自ライセンスを選択肢として記載し、独自ライセンスでの公開にはSteinbergが署名した契約書を求めています。ASIO対応バイナリを出す場合は、GPLv3に沿う配布構成を整えるか、Steinbergとの契約を取得するかを先に決めます。どちらの場合もSDK内の各ファイルにある個別のライセンス表示を確認します。現時点でASIO検証版を配布物に転用しません。
 
-`scripts/bootstrap-qt-source.ps1` は[Qt公式のqtbase 6.10.3ソース](https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz.mirrorlist)をSHA-256 `383dc907816338f0cba72088a524c07458dfc69ce684ca9132fcc4fe91c24b0b` で確認し、ライセンス本文38件を取り出します。アーカイブの `.tag` と導入済みバイナリのSBOMには同じcommit `7ddbc87d8e14ce51d2957ea72d0a6077593d5ff4` が記録されています。ただし、同梱するQtの4つのDLLはSBOM記載のSHA-1と一致しません。DLLのQt Company署名は有効ですが、これだけでは差の原因を確定できません。
+`scripts/bootstrap-qt-source.ps1` は[Qt公式のqtbase 6.10.3ソース](https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz.mirrorlist)をSHA-256 `383dc907816338f0cba72088a524c07458dfc69ce684ca9132fcc4fe91c24b0b` で確認し、ライセンス本文38件を取り出します。アーカイブの `.tag` と導入済みバイナリのSBOMには同じcommit `7ddbc87d8e14ce51d2957ea72d0a6077593d5ff4` が記録されています。`scripts/bootstrap-qt.ps1` はQt公式バイナリアーカイブを保存し、SHA-256 `4db84dee7fe3c558f242bef0a88852613af76580dc6d2b24596479f47004dad7` を検証します。ステージング時には公式アーカイブからQtの4つのDLLとSBOMを取り出し、同梱ファイルとバイト単位で照合します。5ファイルとも一致しますが、公式アーカイブ内の4つのDLLは同じアーカイブのSBOM記載SHA-1と一致しません。DLLのQt Company署名は有効です。この不一致の理由はまだ確定していません。
 
-`scripts/stage-windows-release.ps1` はWASAPI専用ReleaseビルドからGUI・CLI、依存DLL、Qtライセンス本文、2つのSPDX文書とソース参照情報をローカル確認用フォルダーへ集めます。FFmpegはvcpkgのポートが指定するSHA-512と一致する8.1.2のソースアーカイブ、14件のパッチ、ポート定義、Releaseビルド時に生成した設定ファイルを保存します。libsrtも同様に1.5.6のソースアーカイブ、3件のパッチ、ポート定義、CMakeCacheを保存します。各ファイルのSHA-256、Qtの4つのDLLとSBOMのSHA-1比較、Git作業ツリーの状態を記録し、依存診断、PortAudioのASIO非列挙、SRT待受、GUI起動を開発用DLLパスなしで確認します。Qtの第三者通知と同梱DLLの照合、公開時のソース提供方法、WindowsのVCランタイムがない機械での起動は未確認です。フォルダー内の `STAGING-STATUS.txt` はこれらを公開前の不足として明記します。このローカル確認は公開可否の承認ではありません。
+`scripts/stage-windows-release.ps1` はWASAPI専用ReleaseビルドからGUI・CLI、依存DLL、Qtライセンス本文、2つのSPDX文書、公式バイナリアーカイブとソース参照情報をローカル確認用フォルダーへ集めます。FFmpegはvcpkgのポートが指定するSHA-512と一致する8.1.2のソースアーカイブ、14件のパッチ、ポート定義、Releaseビルド時に生成した設定ファイルを保存します。libsrtも同様に1.5.6のソースアーカイブ、3件のパッチ、ポート定義、CMakeCacheを保存します。各ファイルのSHA-256、Qtの公式アーカイブとのバイト照合、Qtの4つのDLLとSBOMのSHA-1比較、Git作業ツリーの状態を記録し、依存診断、PortAudioのASIO非列挙、SRT待受、GUI起動を開発用DLLパスなしで確認します。Qtの第三者通知とSBOM記載ハッシュの差、公開時のソース提供方法、WindowsのVCランタイムがない機械での起動は未確認です。フォルダー内の `STAGING-STATUS.txt` はこれらを公開前の不足として明記します。このローカル確認は公開可否の承認ではありません。
 
 | 対象 | 現在の確認結果 | 公開前に実施すること |
 | --- | --- | --- |
