@@ -55,3 +55,5 @@ Debugビルドで1時間のSRT→仮想WASAPI→Spoutループバックを実行
 | デバイス切断復帰 | 再生中の切断、既定デバイス変更、同名再接続を試す | エラー遷移、無音化、再列挙と復帰の所要時間 |
 
 上記が通るまで、PortAudioを最終採用と宣言しません。タイムスタンプはPortAudio APIが示す「先頭サンプルのDAC出力予定時刻」で、ここで実測した物理時刻ではありません。[PortAudioの時刻情報](https://portaudio.com/docs/v19-doxydocs/structPaStreamCallbackTimeInfo.html)。
+
+実機ASIOの最初の検査には `scripts/probe-asio-msvc.ps1` を使います。指定したドライバだけを列挙し、無音出力の実効コールバック速度と申告レートを比較します。処理が止まるドライバに備えて時間制限を設けています。Voicemeeter Virtual ASIOを8チャンネル・44.1 kHzで3秒試したところ、実効約24.4 kframes/sで失敗と判定することを確認しました。これはチャンネルごとの物理配線や再生中の機器切断を代替する試験ではありません。

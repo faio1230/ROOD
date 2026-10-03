@@ -110,6 +110,14 @@ ASIOの検証用ビルドにはSteinberg公式ASIO SDK 2.3.4をローカルで�
 
 **このPCのVB-MatrixとVoicemeeterの仮想ASIOでは、44.1 kHzを申告しながら実際のコールバック消費速度は約24.5～24.8 kframes/sでした。** 短時間の開設成功は連続出力の合格を意味しません。VB-Matrixを使った20～30秒のSRT受信では音声とSpout映像が大量に破棄されたため、この環境でのASIO採用は保留です。`rood_pa_probe --timing` は申告レートと実効速度が5%以上ずれると失敗します。詳細は[PortAudio検証記録](docs/portaudio-validation.md)を参照してください。
 
+ASIO実機をつないだら、検証用ビルドを作り、そのドライバだけを読み込んで無音出力を試せます。診断スクリプトは列挙と出力に時間制限を設け、ログを `build/tests/asio-manual` に保存します。ドライバ名、チャンネル数、サンプルレートは接続機器に合わせます。
+
+```powershell
+./scripts/build-media-asio-msvc.cmd
+./scripts/probe-asio-msvc.ps1 -DriverName '接続したASIOドライバ名' -ListOnly
+./scripts/probe-asio-msvc.ps1 -DriverName '接続したASIOドライバ名' -Channels 8 -SampleRate 48000 -Seconds 10
+```
+
 ```powershell
 ./scripts/prepare-portaudio-asio.ps1
 ./scripts/bootstrap-portaudio-asio-msvc.cmd
