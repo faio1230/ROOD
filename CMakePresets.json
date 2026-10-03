@@ -3,7 +3,7 @@
   "configurePresets": [
     {
       "name": "windows-mingw-dev",
-      "displayName": "Windows MinGW development",
+      "displayName": "ROOD Windows MinGW development",
       "generator": "MinGW Makefiles",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
@@ -14,7 +14,7 @@
     {
       "name": "windows-mingw-asio-test",
       "inherits": "windows-mingw-dev",
-      "displayName": "Windows MinGW ASIO isolated-driver test",
+      "displayName": "ROOD Windows MinGW ASIO isolated-driver test",
       "binaryDir": "${sourceDir}/build/asio-test-app",
       "cacheVariables": {
         "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/portaudio-asio-test-install"

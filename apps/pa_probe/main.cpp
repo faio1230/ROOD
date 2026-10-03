@@ -205,7 +205,7 @@ int main(int argc, char* argv[]) {
                   parse_int(argv[4], 1, 3600));
         } else {
             throw std::invalid_argument(
-                "usage: srt_rx_pa_probe [--list | --format INDEX shared|exclusive|default CHANNELS [RATE] | "
+                "usage: rood_pa_probe [--list | --format INDEX shared|exclusive|default CHANNELS [RATE] | "
                 "--timing INDEX shared|exclusive|default SECONDS CHANNELS [RATE]]");
         }
     } catch (const std::exception& error) {

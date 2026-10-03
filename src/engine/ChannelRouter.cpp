@@ -1,4 +1,4 @@
-#include "srt_rx/ChannelRouter.hpp"
+#include "rood/ChannelRouter.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace srt_rx {
+namespace rood {
 
 ChannelRouter::ChannelRouter(std::uint32_t device_channels,
                              std::vector<ChannelRoute> routes)
@@ -70,4 +70,4 @@ bool ChannelRouter::render(const std::vector<AudioBlockView>& blocks,
     return true;
 }
 
-} // namespace srt_rx
+} // namespace rood

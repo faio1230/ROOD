@@ -1,12 +1,12 @@
-#include "srt_rx/ChannelRouter.hpp"
+#include "rood/ChannelRouter.hpp"
 
 #include <cmath>
 #include <stdexcept>
 #include <vector>
 
-using srt_rx::AudioBlockView;
-using srt_rx::ChannelRoute;
-using srt_rx::ChannelRouter;
+using rood::AudioBlockView;
+using rood::ChannelRoute;
+using rood::ChannelRouter;
 
 void require(bool condition) {
     if (!condition) {

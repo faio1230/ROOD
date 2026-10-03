@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace srt_rx {
+namespace rood {
 
 // One already decoded, timestamp-aligned audio block. Samples are interleaved
 // float32, with frames * channels elements. The caller owns the storage.
@@ -42,4 +42,4 @@ private:
     std::vector<ChannelRoute> routes_;
 };
 
-} // namespace srt_rx
+} // namespace rood

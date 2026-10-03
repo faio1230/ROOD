@@ -9,7 +9,10 @@
 | FFmpeg | 開発版未導入 | LGPLに収まる設定を選び、`--enable-gpl` / `--enable-nonfree` を避けてDLLで利用する |
 | libsrt | 未導入 | 版とビルド設定を固定する |
 | Spout2 | 未導入 | 版、API、ライセンス、配布物を確認する |
+| OMT (`libomt` / `libvmx`) | 未導入 | C/C++向けAPI、WindowsバイナリとMinGW互換性、版と配布物を確認する |
 | Steinberg ASIO SDK | ローカル検証用に取得 | 公式配布2.3.4、ZIP SHA-256 `D5EBF0C20DD2C5F43771FD0C1418F4B361BF52434EE670097CFA6B3A335E2ECA`。SDKをこのリポジトリへコピーしない |
+
+OMTの[公式プロジェクト](https://github.com/openmediatransport)はMITライセンスを掲げています。C/C++向けの[`libomt`](https://github.com/openmediatransport/libomt)はCエクスポートを持つ共有ライブラリで、映像圧縮に[`libvmx`](https://github.com/openmediatransport/libvmx)を使います。Windowsの配布バイナリと現在のMinGWのABI互換性は未検証なので、Qt・Spout2も含めて最終ツールチェーンを選びます。
 
 FFmpeg公式の[法務・ライセンス案内](https://ffmpeg.org/legal.html)は、LGPL構成ではGPL・nonfreeオプションを使わず、WindowsではDLLでリンクする方法を示しています。このPCの既存FFmpeg CLIは `--enable-gpl` 付きで、しかも開発ヘッダーがありません。プロジェクトの依存には採用しません。
 

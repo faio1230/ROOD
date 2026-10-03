@@ -62,4 +62,4 @@ cmake --install $build
 if ($LASTEXITCODE -ne 0) { throw 'PortAudio ASIO install failed' }
 
 Write-Host "PortAudio ASIO test build installed in $install"
-Write-Host 'Set SRT_RX_ASIO_ONLY to one driver name before enumerating devices.'
+Write-Host 'Set ROOD_ASIO_ONLY to one driver name before enumerating devices.'

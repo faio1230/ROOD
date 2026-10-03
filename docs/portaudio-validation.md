@@ -1,6 +1,6 @@
 # PortAudio実機検証
 
-対象はPortAudio v19.7.0です。`scripts/bootstrap-portaudio.ps1` はWASAPIだけを有効にします。`scripts/bootstrap-portaudio-asio.ps1` はSteinberg公式ASIO SDK 2.3.4をローカルで使い、ASIOとWASAPIを有効にした**検証用**ビルドを作ります。この検証版には、`SRT_RX_ASIO_ONLY` で単一ドライバに絞る[小さなパッチ](../patches/portaudio-v19.7.0-asio-allowlist.patch)を当てています。
+対象はPortAudio v19.7.0です。`scripts/bootstrap-portaudio.ps1` はWASAPIだけを有効にします。`scripts/bootstrap-portaudio-asio.ps1` はSteinberg公式ASIO SDK 2.3.4をローカルで使い、ASIOとWASAPIを有効にした**検証用**ビルドを作ります。この検証版には、`ROOD_ASIO_ONLY` で単一ドライバに絞る[小さなパッチ](../patches/portaudio-v19.7.0-asio-allowlist.patch)を当てています。
 
 ## 初回の観測
 

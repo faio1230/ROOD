@@ -1,5 +1,5 @@
 diff --git a/src/hostapi/asio/pa_asio.cpp b/src/hostapi/asio/pa_asio.cpp
-index bc5f0e4..7674524 100644
+index bc5f0e4..fe192f2 100644
 --- a/src/hostapi/asio/pa_asio.cpp
 +++ b/src/hostapi/asio/pa_asio.cpp
 @@ -82,6 +82,7 @@
@@ -14,7 +14,7 @@ index bc5f0e4..7674524 100644
  
          IsDebuggerPresent_ = (IsDebuggerPresentPtr)GetProcAddress( LoadLibraryA( "Kernel32.dll" ), "IsDebuggerPresent" );
  
-+        const char* onlyDriverName = getenv("SRT_RX_ASIO_ONLY");
++        const char* onlyDriverName = getenv("ROOD_ASIO_ONLY");
 +
          for( i=0; i < driverCount; ++i )
          {
