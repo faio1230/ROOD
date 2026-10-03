@@ -69,6 +69,8 @@ public:
         const auto current = output->stats();
         if (current.streamStarted && !current.streamActive)
             retire(output, "audio output stream stopped unexpectedly");
+        else if (current.callbackStalled)
+            retire(output, "audio output callback stalled for more than two seconds");
     }
 
     void reset() {

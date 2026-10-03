@@ -33,6 +33,7 @@ struct AudioOutputStats {
     std::int64_t playheadFrames = 0;
     bool streamStarted = false;
     bool streamActive = false;
+    bool callbackStalled = false;
     double driftCorrectionPpm = 0.0;
     double driftErrorMs = 0.0;
     bool driftLocked = false;

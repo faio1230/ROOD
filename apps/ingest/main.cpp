@@ -215,6 +215,7 @@ public:
                       << " renderedFrames=" << audio.renderedFrames
                       << " rejectedFrames=" << audio.rejectedFrames
                       << " streamActive=" << audio.streamActive
+                      << " callbackStalled=" << audio.callbackStalled
                       << " driftLocked=" << audio.driftLocked
                       << " driftPpm=" << audio.driftCorrectionPpm
                       << " driftErrorMs=" << audio.driftErrorMs

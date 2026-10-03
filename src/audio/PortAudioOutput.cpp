@@ -264,6 +264,7 @@ public:
                                       frame.ch_layout.nb_channels, scratch_.data(), available);
         resampler.setNextFrame(position + static_cast<std::int64_t>(available));
         if (!started_.load() && accepted > 0) {
+            lastCallbackTicks_.store(0);
             checkPa(Pa_StartStream(stream_.get()), "Pa_StartStream");
             streamStartTicks_.store(Clock::now().time_since_epoch().count());
             started_.store(true);
@@ -275,6 +276,7 @@ public:
             checkPa(Pa_StopStream(stream_.get()), "Pa_StopStream");
             started_.store(false);
             streamStartTicks_.store(0);
+            lastCallbackTicks_.store(0);
         }
         resamplers_.clear();
         timeline_.reset();
@@ -307,6 +309,11 @@ public:
         if (startTicks != 0) {
             const auto started = Clock::time_point(Clock::duration(startTicks));
             const double elapsed = std::chrono::duration<double>(Clock::now() - started).count();
+            const auto callbackTicks = lastCallbackTicks_.load();
+            const auto mostRecentTicks = std::max(startTicks, callbackTicks);
+            result.callbackStalled = result.streamActive &&
+                Clock::now() - Clock::time_point(Clock::duration(mostRecentTicks)) >
+                std::chrono::seconds(2);
             if (elapsed >= 5.0) {
                 result.observedSampleRate = result.playheadFrames / elapsed;
                 result.sampleClockMismatch =
@@ -329,6 +336,7 @@ private:
         const auto rendered = self.timeline_.pull(frames, static_cast<float*>(output));
         self.renderedFrames_.fetch_add(rendered);
         self.callbacks_.fetch_add(1);
+        self.lastCallbackTicks_.store(Clock::now().time_since_epoch().count());
         const double ratio = 1.0 + self.driftPpm_.load() / 1000000.0;
         self.mediaPosition_.store(self.mediaPosition_.load() +
             static_cast<double>(frames) / (self.config_.sampleRate * ratio));
@@ -355,6 +363,7 @@ private:
     std::atomic<double> mediaPosition_{0};
     std::atomic_bool started_{false};
     std::atomic<Clock::duration::rep> streamStartTicks_{0};
+    std::atomic<Clock::duration::rep> lastCallbackTicks_{0};
     ClockRecovery clockRecovery_;
     std::chrono::steady_clock::time_point lastClockObservation_;
     std::atomic<double> driftPpm_{0};
