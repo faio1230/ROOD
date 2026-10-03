@@ -312,4 +312,24 @@ std::optional<double> PortAudioOutput::playbackMediaSeconds() const noexcept {
     return impl_->playbackMediaSeconds();
 }
 
+std::vector<AudioDeviceInfo> listAudioOutputDevices() {
+    PaRuntime runtime;
+    const int count = Pa_GetDeviceCount();
+    if (count < 0) checkPa(count, "Pa_GetDeviceCount");
+    std::vector<AudioDeviceInfo> devices;
+    for (int index = 0; index < count; ++index) {
+        const auto* device = Pa_GetDeviceInfo(index);
+        if (!device || device->maxOutputChannels <= 0) continue;
+        const auto* api = Pa_GetHostApiInfo(device->hostApi);
+        AudioDeviceInfo entry;
+        entry.index = index;
+        entry.name = device->name ? device->name : "unknown";
+        entry.hostApi = api && api->name ? api->name : "unknown";
+        entry.maxOutputChannels = device->maxOutputChannels;
+        entry.defaultSampleRate = device->defaultSampleRate;
+        devices.push_back(std::move(entry));
+    }
+    return devices;
+}
+
 } // namespace rood

@@ -5,14 +5,14 @@ ROODは、SRTの受信・分配・接続状況の監視に特化したWindowsア
 ## 現在できること
 
 - C++17のエンジンで、タイムスタンプに沿って整列済みの複数音声トラックを、任意の出力チャンネルへ割り当て・複製・加算できます。
-- Qt 6 Widgetsが見つかる環境では、現在の開発状態を表示するGUIシェルをビルドできます。
+- Qt 6 Widgetsの画面から、SRT待受、音声デバイスとチャンネル経路、Spout2／OMT出力を設定して受信開始・停止できます。接続状態、検出トラック、SRT統計、出力統計を表示します。
 - PortAudio開発ファイルが見つかる環境では、デバイス列挙、WASAPI共有／排他の形式確認、無音出力時のタイムスタンプ確認ができます。
 - 開発用CLI `rood_ingest` がSRT listenerでMPEG-TSを受信し、FFmpegで映像と複数音声トラックを分離・デコードします。ストリームID、チャンネル構成、PTS、受信統計を表示し、切断後は再び待ち受けます。
 - `rood_ingest` に音声デバイスを指定すると、各トラックのチャンネルを任意の出力チャンネルへ割り当て、必要なサンプルレート変換を行ってPortAudioのWASAPI／ASIOデバイスへ出力できます。出力遅延をミリ秒で指定できます。
 - `rood_ingest` にSpout名を指定すると、デコード映像をSpout2へ出力できます。音声デバイスを同時指定した場合は、音声コールバックの推定メディア時刻に映像を合わせます。
 - `rood_ingest` にOMT名を指定すると、映像と、複数トラックから最大32チャンネルへルーティングした音声をOMTへ出力できます。双方の元PTSをOMTタイムスタンプへ渡します。
 
-**長時間のクロック差補正は未実装です。** GUIにも受信開始操作はありません。受信エンジンは現時点でMPEG-TSとlistenerモードに限定されます。映像と音声の同期時刻はPortAudioコールバックから推定しており、物理出力時刻の測定値ではありません。
+**長時間のクロック差補正は未実装です。** 受信エンジンは現時点でMPEG-TSとlistenerモードに限定されます。映像と音声の同期時刻はPortAudioコールバックから推定しており、物理出力時刻の測定値ではありません。
 
 ## Windows MSVC + Qt 6での開発
 
@@ -37,11 +37,14 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 ./scripts/bootstrap-spout2.cmd
 ./scripts/bootstrap-omt.ps1
 ./scripts/build-media-msvc.cmd
+./scripts/run-gui-msvc.cmd
 ```
 
 `vcpkg.json` はlibsrt 1.5.6とFFmpeg 8.1.2の共有ライブラリ構成を固定します。FFmpegは `avcodec`、`avformat`、`swresample`、`swscale` のみを指定し、GPL／nonfreeの追加機能を選びません。Spout2は2.007.017のソースを固定してMSVCで構築し、OMTはv1.0.0.16の公式Windows x64配布物をSHA-256で確認します。Spout2とOMTの出力は開発用CLIから利用できます。
 
 `build-media-msvc.cmd` は全ライブラリをリンクする `rood_deps_probe` を起動します。このPCではFFmpeg DLLが `LGPL version 2.1 or later` と報告し、libsrt・Spout2・OMTのシンボルも解決できました。
+
+`run-gui-msvc.cmd` はメディア対応GUIを起動します。音声・Spout・OMTはそれぞれ個別に有効化できます。GUIで指定した設定は現在の実行中だけ有効で、永続保存は今後追加します。
 
 ### SRT受信の確認
 

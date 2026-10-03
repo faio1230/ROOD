@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 struct AVFrame;
@@ -32,6 +33,16 @@ struct AudioOutputStats {
     std::int64_t playheadFrames = 0;
     bool streamActive = false;
 };
+
+struct AudioDeviceInfo {
+    int index = -1;
+    std::string name;
+    std::string hostApi;
+    int maxOutputChannels = 0;
+    double defaultSampleRate = 0.0;
+};
+
+std::vector<AudioDeviceInfo> listAudioOutputDevices();
 
 // Decodes on the receiver thread; PortAudio only pulls ready interleaved PCM.
 // All PortAudio API calls and resampling happen outside the audio callback.

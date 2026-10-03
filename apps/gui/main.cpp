@@ -5,8 +5,15 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#ifdef ROOD_GUI_HAS_MEDIA
+int runMediaGui(QApplication& app);
+#endif
+
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
+#ifdef ROOD_GUI_HAS_MEDIA
+    return runMediaGui(app);
+#else
 
     QMainWindow window;
     window.setWindowTitle(QStringLiteral("ROOD — 開発用シェル"));
@@ -27,4 +34,5 @@ int main(int argc, char* argv[]) {
     window.setCentralWidget(body);
     window.show();
     return app.exec();
+#endif
 }
