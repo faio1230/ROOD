@@ -7,8 +7,9 @@ ROODは、SRTの受信・分配・接続状況の監視に特化したWindowsア
 - C++17のエンジンで、タイムスタンプに沿って整列済みの複数音声トラックを、任意の出力チャンネルへ割り当て・複製・加算できます。
 - Qt 6 Widgetsが見つかる環境では、現在の開発状態を表示するGUIシェルをビルドできます。
 - PortAudio開発ファイルが見つかる環境では、デバイス列挙、WASAPI共有／排他の形式確認、無音出力時のタイムスタンプ確認ができます。
+- 開発用CLI `rood_ingest` がSRT listenerでMPEG-TSを受信し、FFmpegで映像と複数音声トラックを分離・デコードします。ストリームID、チャンネル構成、PTS、受信統計を表示し、切断後は再び待ち受けます。
 
-**SRT受信、接続監視、TS等の分離、デコード、映像／音声同期、エンジンからPortAudioへの音声出力、Spout／OMT出力は未実装です。** GUIにも受信開始操作はありません。
+**映像／音声同期、エンジンからPortAudioへの音声出力、Spout／OMT出力は未実装です。** GUIにも受信開始操作はありません。受信エンジンは現時点でMPEG-TSとlistenerモードに限定されます。
 
 ## Windows MSVC + Qt 6での開発
 
@@ -35,9 +36,25 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 ./scripts/build-media-msvc.cmd
 ```
 
-`vcpkg.json` はlibsrt 1.5.6とFFmpeg 8.1.2の共有ライブラリ構成を固定します。FFmpegは `avcodec`、`avformat`、`swresample`、`swscale` のみを指定し、GPL／nonfreeの追加機能を選びません。Spout2は2.007.017のソースを固定してMSVCで構築し、OMTはv1.0.0.16の公式Windows x64配布物をSHA-256で確認します。これらをROODのエンジンに接続する実装は今後行います。
+`vcpkg.json` はlibsrt 1.5.6とFFmpeg 8.1.2の共有ライブラリ構成を固定します。FFmpegは `avcodec`、`avformat`、`swresample`、`swscale` のみを指定し、GPL／nonfreeの追加機能を選びません。Spout2は2.007.017のソースを固定してMSVCで構築し、OMTはv1.0.0.16の公式Windows x64配布物をSHA-256で確認します。libsrtとFFmpegは受信エンジンに接続済みで、Spout2とOMTの出力は今後実装します。
 
 `build-media-msvc.cmd` は全ライブラリをリンクする `rood_deps_probe` を起動します。このPCではFFmpeg DLLが `LGPL version 2.1 or later` と報告し、libsrt・Spout2・OMTのシンボルも解決できました。
+
+### SRT受信の確認
+
+受信側を起動するとUDPポート9000で待ち受けます。映像・音声フレームは診断用コールバックまで届きますが、まだ画面や音声デバイスには出しません。
+
+```powershell
+./scripts/run-ingest-msvc.cmd --port 9000 --latency 120
+```
+
+別の端末からSRT callerでMPEG-TSを送ります。`--seconds 20` で自動終了、Ctrl+Cでも停止できます。任意のポートを使うループバック検証は、FFmpeg CLIがある環境で次を実行します。
+
+```powershell
+./scripts/test-srt-loopback.ps1
+```
+
+検証は映像1本、ステレオ音声1本、5.1音声1本を生成し、ストリームID、チャンネル数、PTS、デコード済みフレーム、切断後の再接続を確認します。`-FfmpegPath` でFFmpeg CLIの場所を指定できます。FFmpeg CLIは検証用で、アプリの実行時依存ではありません。
 
 ASIOの検証用ビルドにはSteinberg公式ASIO SDK 2.3.4をローカルで使います。初回のPowerShellスクリプトは公式配布URLから取得し、SHA-256を照合します。SDKとビルド成果物は `build/` 以下に置き、Gitへ含めません。検証用PortAudioパッチは環境変数で1つのASIOドライバだけを開くためのもので、通常ビルドには適用しません。
 

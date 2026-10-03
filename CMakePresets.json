@@ -40,7 +40,8 @@
       "cacheVariables": {
         "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/qt/6.10.3/msvc2022_64;${sourceDir}/build/deps/portaudio-msvc-install;${sourceDir}/build/deps/vcpkg-installed/x64-windows;${sourceDir}/build/deps/spout2-msvc-install",
         "ROOD_OMT_DIR": "${sourceDir}/build/deps/omt-v1.0.0.16/Libraries/Winx64",
-        "ROOD_BUILD_MEDIA_DEPENDENCY_PROBE": "ON"
+        "ROOD_BUILD_MEDIA_DEPENDENCY_PROBE": "ON",
+        "ROOD_BUILD_SRT_INGEST": "ON"
       }
     },
     {

@@ -10,6 +10,7 @@ option(ROOD_BUILD_GUI "Build the Qt Widgets shell when Qt 6 is available" ON)
 option(ROOD_REQUIRE_QT "Fail configuration when Qt 6 Widgets is unavailable" OFF)
 option(ROOD_BUILD_PORTAUDIO_PROBE "Build the PortAudio device probe when PortAudio is available" ON)
 option(ROOD_BUILD_MEDIA_DEPENDENCY_PROBE "Link and inspect the pinned media development libraries" OFF)
+option(ROOD_BUILD_SRT_INGEST "Build the independent SRT receive and FFmpeg decode engine" OFF)
 
 add_library(rood_engine STATIC
     src/engine/ChannelRouter.cpp
@@ -21,6 +22,34 @@ if(MSVC)
     target_compile_options(rood_engine PRIVATE /W4)
 else()
     target_compile_options(rood_engine PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if(ROOD_BUILD_SRT_INGEST)
+    find_path(ROOD_FFMPEG_INCLUDE_DIR libavformat/avformat.h REQUIRED)
+    find_library(ROOD_AVFORMAT_LIBRARY NAMES avformat REQUIRED)
+    find_library(ROOD_AVCODEC_LIBRARY NAMES avcodec REQUIRED)
+    find_library(ROOD_AVUTIL_LIBRARY NAMES avutil REQUIRED)
+    find_path(ROOD_LIBSRT_INCLUDE_DIR srt/srt.h REQUIRED)
+    find_library(ROOD_LIBSRT_LIBRARY NAMES srt REQUIRED)
+
+    add_library(rood_media STATIC src/media/MediaReceiver.cpp)
+    target_include_directories(rood_media PUBLIC include "${ROOD_FFMPEG_INCLUDE_DIR}" "${ROOD_LIBSRT_INCLUDE_DIR}")
+    target_link_libraries(rood_media PUBLIC
+        "${ROOD_AVFORMAT_LIBRARY}" "${ROOD_AVCODEC_LIBRARY}"
+        "${ROOD_AVUTIL_LIBRARY}" "${ROOD_LIBSRT_LIBRARY}")
+    if(WIN32)
+        target_link_libraries(rood_media PUBLIC ws2_32)
+    endif()
+    if(MSVC)
+        target_compile_options(rood_media PRIVATE /W4 /utf-8)
+    else()
+        target_compile_options(rood_media PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_executable(rood_ingest apps/ingest/main.cpp)
+    target_link_libraries(rood_ingest PRIVATE rood_media)
+    if(MSVC)
+        target_compile_options(rood_ingest PRIVATE /W4 /utf-8)
+    endif()
 endif()
 
 add_executable(rood_diag apps/diag/main.cpp)
