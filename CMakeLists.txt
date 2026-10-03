@@ -237,4 +237,19 @@ if(BUILD_TESTING)
     add_executable(clock_recovery_test tests/ClockRecoveryTest.cpp)
     target_link_libraries(clock_recovery_test PRIVATE rood_engine)
     add_test(NAME clock_recovery COMMAND clock_recovery_test)
+    if(WIN32 AND TARGET rood_gui AND TARGET rood_media AND TARGET rood_audio AND
+       TARGET rood_video AND TARGET rood_omt)
+        add_executable(gui_settings_test tests/GuiSettingsTest.cpp)
+        target_link_libraries(gui_settings_test PRIVATE
+            rood_engine rood_media rood_audio rood_video rood_omt Qt6::Widgets)
+        if(MSVC)
+            target_compile_options(gui_settings_test PRIVATE /utf-8)
+        endif()
+        get_filename_component(ROOD_GUI_TEST_PA_LIB_DIR "${PORTAUDIO_LIBRARY}" DIRECTORY)
+        get_filename_component(ROOD_GUI_TEST_PA_ROOT "${ROOD_GUI_TEST_PA_LIB_DIR}" DIRECTORY)
+        add_test(NAME gui_settings COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-gui-settings-test.ps1"
+            -Executable "$<TARGET_FILE:gui_settings_test>"
+            -PortAudioBin "${ROOD_GUI_TEST_PA_ROOT}/bin")
+    endif()
 endif()

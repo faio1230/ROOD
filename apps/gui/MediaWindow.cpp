@@ -6,6 +6,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QComboBox>
 #include <QDateTime>
 #include <QFormLayout>
@@ -20,6 +21,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSettings>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QTimer>
@@ -324,6 +326,7 @@ public:
         auto* inputGroup = new QGroupBox(QStringLiteral("SRT入力"), settings);
         auto* inputForm = new QFormLayout(inputGroup);
         port_ = spin(1, 65535, 9000, inputGroup);
+        port_->setObjectName(QStringLiteral("inputPort"));
         latency_ = spin(20, 8000, 120, inputGroup);
         receiveBufferKiB_ = spin(0, 16384, 0, inputGroup);
         receiveBufferKiB_->setSpecialValueText(QStringLiteral("libsrt既定"));
@@ -337,6 +340,7 @@ public:
         audioEnabled_ = new QCheckBox(QStringLiteral("ASIO / WASAPIへ出力"), audioGroup);
         audioForm->addRow(audioEnabled_);
         device_ = new QComboBox(audioGroup);
+        device_->setObjectName(QStringLiteral("audioDevice"));
         refreshButton_ = new QPushButton(QStringLiteral("更新"), audioGroup);
         auto* deviceRow = new QWidget(audioGroup);
         auto* deviceLayout = new QHBoxLayout(deviceRow);
@@ -345,6 +349,7 @@ public:
         deviceLayout->addWidget(refreshButton_);
         audioForm->addRow(QStringLiteral("出力デバイス"), deviceRow);
         audioChannels_ = spin(1, 256, 2, audioGroup);
+        audioChannels_->setObjectName(QStringLiteral("audioChannels"));
         audioRate_ = spin(8000, 384000, 48000, audioGroup);
         audioDelay_ = spin(0, 3000, 250, audioGroup);
         exclusive_ = new QCheckBox(QStringLiteral("WASAPI排他"), audioGroup);
@@ -353,6 +358,7 @@ public:
         audioForm->addRow(QStringLiteral("出力遅延 (ms)"), audioDelay_);
         audioForm->addRow(exclusive_);
         audioRoutes_ = new QPlainTextEdit(audioGroup);
+        audioRoutes_->setObjectName(QStringLiteral("audioRoutes"));
         audioRoutes_->setPlainText(QStringLiteral("257:0:0\n257:1:1"));
         audioRoutes_->setMaximumHeight(90);
         audioForm->addRow(QStringLiteral("経路 (1行1件)"), audioRoutes_);
@@ -363,6 +369,7 @@ public:
         spoutEnabled_ = new QCheckBox(QStringLiteral("Spoutへ出力"), spoutGroup);
         spoutForm->addRow(spoutEnabled_);
         spoutName_ = new QLineEdit(QStringLiteral("ROOD"), spoutGroup);
+        spoutName_->setObjectName(QStringLiteral("spoutName"));
         videoDelay_ = spin(0, 5000, 250, spoutGroup);
         videoDelay_->setToolTip(QStringLiteral(
             "音声デバイスを使わない場合の遅延です。音声との時差は下のオフセットで調整します。"));
@@ -381,6 +388,7 @@ public:
         omtRate_ = spin(8000, 192000, 48000, omtGroup);
         omtDelay_ = spin(0, 5000, 250, omtGroup);
         omtRoutes_ = new QPlainTextEdit(omtGroup);
+        omtRoutes_->setObjectName(QStringLiteral("omtRoutes"));
         omtRoutes_->setPlainText(QStringLiteral("257:0:0\n257:1:1"));
         omtRoutes_->setMaximumHeight(90);
         omtForm->addRow(QStringLiteral("送信名"), omtName_);
@@ -408,17 +416,122 @@ public:
         auto* timer = new QTimer(this);
         connect(timer, &QTimer::timeout, this, [this] { updateStatus(); });
         timer->start(250);
+        loadSettings();
         refreshDevices();
         updateStatus();
     }
 
 private:
+    void loadSettings() {
+        QSettings settings(QSettings::IniFormat, QSettings::UserScope,
+                           QStringLiteral("Studio Sandix"), QStringLiteral("ROOD"));
+        settings.setFallbacksEnabled(false);
+        settings.beginGroup(QStringLiteral("v1"));
+        auto restoreSpin = [&settings](const QString& key, QSpinBox* box) {
+            bool valid = false;
+            const int value = settings.value(key).toInt(&valid);
+            if (valid && value >= box->minimum() && value <= box->maximum())
+                box->setValue(value);
+        };
+        auto restoreCheck = [&settings](const QString& key, QCheckBox* box) {
+            if (settings.contains(key)) box->setChecked(settings.value(key).toBool());
+        };
+        auto restoreText = [&settings](const QString& key, QLineEdit* box) {
+            if (settings.contains(key)) box->setText(settings.value(key).toString());
+        };
+        auto restoreRoutes = [&settings](const QString& key, QPlainTextEdit* box) {
+            if (settings.contains(key)) box->setPlainText(settings.value(key).toString());
+        };
+
+        restoreSpin(QStringLiteral("input/port"), port_);
+        restoreSpin(QStringLiteral("input/latencyMs"), latency_);
+        restoreSpin(QStringLiteral("input/receiveBufferKiB"), receiveBufferKiB_);
+        restoreCheck(QStringLiteral("audio/enabled"), audioEnabled_);
+        restoreSpin(QStringLiteral("audio/channels"), audioChannels_);
+        restoreSpin(QStringLiteral("audio/rate"), audioRate_);
+        restoreSpin(QStringLiteral("audio/delayMs"), audioDelay_);
+        restoreCheck(QStringLiteral("audio/exclusive"), exclusive_);
+        restoreRoutes(QStringLiteral("audio/routes"), audioRoutes_);
+        const QString identifier = settings.value(QStringLiteral("audio/deviceIdentifier")).toString();
+        const QString name = settings.value(QStringLiteral("audio/deviceName")).toString();
+        const QString hostApi = settings.value(QStringLiteral("audio/deviceHostApi")).toString();
+        if (!identifier.isEmpty() && !name.isEmpty() && !hostApi.isEmpty()) {
+            rood::AudioDeviceInfo saved;
+            saved.identifier = identifier.toStdString();
+            saved.name = name.toStdString();
+            saved.hostApi = hostApi.toStdString();
+            savedDevice_ = std::move(saved);
+        }
+        restoreCheck(QStringLiteral("spout/enabled"), spoutEnabled_);
+        restoreText(QStringLiteral("spout/name"), spoutName_);
+        restoreSpin(QStringLiteral("spout/delayMs"), videoDelay_);
+        restoreSpin(QStringLiteral("spout/offsetMs"), videoOffset_);
+        restoreCheck(QStringLiteral("omt/enabled"), omtEnabled_);
+        restoreText(QStringLiteral("omt/name"), omtName_);
+        restoreSpin(QStringLiteral("omt/channels"), omtChannels_);
+        restoreSpin(QStringLiteral("omt/rate"), omtRate_);
+        restoreSpin(QStringLiteral("omt/delayMs"), omtDelay_);
+        restoreRoutes(QStringLiteral("omt/routes"), omtRoutes_);
+        settings.endGroup();
+        if (settings.status() != QSettings::NoError)
+            QMessageBox::warning(this, QStringLiteral("設定の読込"),
+                QStringLiteral("設定ファイルを読み込めませんでした: %1").arg(settings.fileName()));
+    }
+
+    void saveSettings() {
+        QSettings settings(QSettings::IniFormat, QSettings::UserScope,
+                           QStringLiteral("Studio Sandix"), QStringLiteral("ROOD"));
+        settings.setFallbacksEnabled(false);
+        settings.beginGroup(QStringLiteral("v1"));
+        settings.setValue(QStringLiteral("input/port"), port_->value());
+        settings.setValue(QStringLiteral("input/latencyMs"), latency_->value());
+        settings.setValue(QStringLiteral("input/receiveBufferKiB"), receiveBufferKiB_->value());
+        settings.setValue(QStringLiteral("audio/enabled"), audioEnabled_->isChecked());
+        settings.setValue(QStringLiteral("audio/channels"), audioChannels_->value());
+        settings.setValue(QStringLiteral("audio/rate"), audioRate_->value());
+        settings.setValue(QStringLiteral("audio/delayMs"), audioDelay_->value());
+        settings.setValue(QStringLiteral("audio/exclusive"), exclusive_->isChecked());
+        settings.setValue(QStringLiteral("audio/routes"), audioRoutes_->toPlainText());
+        const int choice = device_->currentData().toInt();
+        if (choice >= 0 && choice < static_cast<int>(deviceChoices_.size())) {
+            const auto& selected = deviceChoices_[static_cast<std::size_t>(choice)];
+            settings.setValue(QStringLiteral("audio/deviceIdentifier"),
+                              QString::fromStdString(selected.identifier));
+            settings.setValue(QStringLiteral("audio/deviceName"),
+                              QString::fromStdString(selected.name));
+            settings.setValue(QStringLiteral("audio/deviceHostApi"),
+                              QString::fromStdString(selected.hostApi));
+        } else {
+            settings.remove(QStringLiteral("audio/deviceIdentifier"));
+            settings.remove(QStringLiteral("audio/deviceName"));
+            settings.remove(QStringLiteral("audio/deviceHostApi"));
+        }
+        settings.setValue(QStringLiteral("spout/enabled"), spoutEnabled_->isChecked());
+        settings.setValue(QStringLiteral("spout/name"), spoutName_->text());
+        settings.setValue(QStringLiteral("spout/delayMs"), videoDelay_->value());
+        settings.setValue(QStringLiteral("spout/offsetMs"), videoOffset_->value());
+        settings.setValue(QStringLiteral("omt/enabled"), omtEnabled_->isChecked());
+        settings.setValue(QStringLiteral("omt/name"), omtName_->text());
+        settings.setValue(QStringLiteral("omt/channels"), omtChannels_->value());
+        settings.setValue(QStringLiteral("omt/rate"), omtRate_->value());
+        settings.setValue(QStringLiteral("omt/delayMs"), omtDelay_->value());
+        settings.setValue(QStringLiteral("omt/routes"), omtRoutes_->toPlainText());
+        settings.endGroup();
+        settings.sync();
+        if (settings.status() != QSettings::NoError)
+            QMessageBox::warning(this, QStringLiteral("設定の保存"),
+                QStringLiteral("設定ファイルに保存できませんでした: %1").arg(settings.fileName()));
+    }
+
     void refreshDevices() {
         std::optional<rood::AudioDeviceInfo> previous;
         const int oldChoice = device_->currentData().toInt();
         if (oldChoice >= 0 &&
             oldChoice < static_cast<int>(deviceChoices_.size()))
             previous = deviceChoices_[static_cast<std::size_t>(oldChoice)];
+        else if (savedDevice_)
+            previous = savedDevice_;
+        savedDevice_.reset();
         deviceChoices_.clear();
         device_->clear();
         device_->addItem(QStringLiteral("デバイスを選択"), -1);
@@ -493,6 +606,7 @@ private:
                 config.omt = std::move(omt);
             }
             session_.start(std::move(config));
+            saveSettings();
             updateStatus();
         } catch (const std::exception& error) {
             QMessageBox::warning(this, QStringLiteral("設定を確認してください"),
@@ -570,6 +684,11 @@ private:
         refreshButton_->setEnabled(!session_.running());
     }
 
+    void closeEvent(QCloseEvent* event) override {
+        saveSettings();
+        QMainWindow::closeEvent(event);
+    }
+
     MediaSession session_;
     QSpinBox* port_ = nullptr;
     QSpinBox* latency_ = nullptr;
@@ -577,6 +696,7 @@ private:
     QCheckBox* audioEnabled_ = nullptr;
     QComboBox* device_ = nullptr;
     std::vector<rood::AudioDeviceInfo> deviceChoices_;
+    std::optional<rood::AudioDeviceInfo> savedDevice_;
     QSpinBox* audioChannels_ = nullptr;
     QSpinBox* audioRate_ = nullptr;
     QSpinBox* audioDelay_ = nullptr;
