@@ -70,4 +70,4 @@ Windowsでは[WASAPIのエンドポイントID](https://learn.microsoft.com/en-u
 
 上記が通るまで、PortAudioを最終採用と宣言しません。タイムスタンプはPortAudio APIが示す「先頭サンプルのDAC出力予定時刻」で、ここで実測した物理時刻ではありません。[PortAudioの時刻情報](https://portaudio.com/docs/v19-doxydocs/structPaStreamCallbackTimeInfo.html)。
 
-実機ASIOの最初の検査には `scripts/probe-asio-msvc.ps1` を使います。指定したドライバだけを列挙し、無音出力の実効コールバック速度と申告レートを比較します。処理が止まるドライバに備えて時間制限を設けています。Voicemeeter Virtual ASIOを8チャンネル・44.1 kHzで3秒試したところ、実効約24.4 kframes/sで失敗と判定することを確認しました。これはチャンネルごとの物理配線や再生中の機器切断を代替する試験ではありません。
+実機ASIOの最初の検査には `scripts/probe-asio-msvc.ps1` を使います。指定したドライバだけを列挙し、ドライバが返す全出力チャンネルの名前を `channels.stdout.txt` に記録してから、無音出力の実効コールバック速度と申告レートを比較します。処理が止まるドライバに備えて時間制限を設けています。Voicemeeter Virtual ASIOで8チャンネルの名前（`VM-VAIO 1`～`VM-VAIO 8`）を記録できました。同ドライバを44.1 kHzで3秒試したところ、実効24,305 frames/sで失敗と判定しました。ログは `build/tests/asio-channel-names-timing-virtual` にあります。チャンネル名はドライバの申告情報であり、物理配線や再生中の機器切断の検証にはなりません。

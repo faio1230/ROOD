@@ -68,7 +68,25 @@ try {
     $index = [int]$device.Groups[1].Value
     $maximumChannels = [int]$device.Groups[3].Value
     Write-Host "ASIO device $index`: $DriverName ($maximumChannels output channels)"
-    if ($ListOnly) { return }
+    $channelNames = Invoke-BoundedProbe -Arguments @('--asio-channels', "$index") `
+        -Prefix 'channels' -TimeoutSeconds 10
+    if ($channelNames.ExitCode -ne 0) {
+        throw "ASIO channel-name inspection failed: $($channelNames.Stderr)"
+    }
+    $lines = [regex]::Matches($channelNames.Stdout, '(?m)^ASIO output channel (\d+): ')
+    if ($lines.Count -ne $maximumChannels) {
+        throw "ASIO driver listed $($lines.Count) names for $maximumChannels output channels. See $logDir"
+    }
+    for ($channel = 0; $channel -lt $maximumChannels; ++$channel) {
+        if ([int]$lines[$channel].Groups[1].Value -ne $channel) {
+            throw "ASIO output channel numbering is incomplete. See $logDir"
+        }
+    }
+    Write-Host $channelNames.Stdout
+    if ($ListOnly) {
+        Write-Host "ASIO channel names recorded. Logs: $logDir"
+        return
+    }
     if ($Channels -gt $maximumChannels) {
         throw "Requested $Channels channels, but the driver reports $maximumChannels."
     }

@@ -29,7 +29,8 @@
       "displayName": "ROOD Windows MSVC ASIO isolated-driver test",
       "binaryDir": "${sourceDir}/build/msvc-asio-test",
       "cacheVariables": {
-        "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/qt/6.10.3/msvc2022_64;${sourceDir}/build/deps/portaudio-asio-msvc-test-install"
+        "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/qt/6.10.3/msvc2022_64;${sourceDir}/build/deps/portaudio-asio-msvc-test-install",
+        "ROOD_PROBE_ASIO_CHANNELS": "ON"
       }
     },
     {
@@ -62,7 +63,8 @@
       "displayName": "ROOD media engine with isolated ASIO driver",
       "binaryDir": "${sourceDir}/build/msvc-media-asio",
       "cacheVariables": {
-        "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/qt/6.10.3/msvc2022_64;${sourceDir}/build/deps/portaudio-asio-msvc-test-install;${sourceDir}/build/deps/vcpkg-installed/x64-windows;${sourceDir}/build/deps/spout2-msvc-install"
+        "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/qt/6.10.3/msvc2022_64;${sourceDir}/build/deps/portaudio-asio-msvc-test-install;${sourceDir}/build/deps/vcpkg-installed/x64-windows;${sourceDir}/build/deps/spout2-msvc-install",
+        "ROOD_PROBE_ASIO_CHANNELS": "ON"
       }
     },
     {
@@ -80,7 +82,8 @@
       "displayName": "ROOD Windows MinGW ASIO isolated-driver test",
       "binaryDir": "${sourceDir}/build/asio-test-app",
       "cacheVariables": {
-        "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/portaudio-asio-test-install"
+        "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/portaudio-asio-test-install",
+        "ROOD_PROBE_ASIO_CHANNELS": "ON"
       }
     }
   ],

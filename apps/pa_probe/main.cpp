@@ -2,6 +2,9 @@
 #ifdef _WIN32
 #include <pa_win_wasapi.h>
 #endif
+#ifdef ROOD_PROBE_ASIO_CHANNELS
+#include <pa_asio.h>
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -88,6 +91,35 @@ void list_devices() {
                   << " | output channels=" << device->maxOutputChannels
                   << " | default rate=" << device->defaultSampleRate << '\n';
     }
+}
+
+void list_asio_channels(int index) {
+#ifdef ROOD_PROBE_ASIO_CHANNELS
+    const PaDeviceInfo* device = Pa_GetDeviceInfo(index);
+    if (device == nullptr) {
+        throw std::invalid_argument("ASIO device index is unavailable");
+    }
+    const PaHostApiInfo* api = Pa_GetHostApiInfo(device->hostApi);
+    if (api == nullptr || api->type != paASIO) {
+        throw std::invalid_argument("device is not an ASIO output");
+    }
+    std::cout << "ASIO device " << index << " (" << device->name << ") has "
+              << device->maxOutputChannels << " output channels\n";
+    for (int channel = 0; channel < device->maxOutputChannels; ++channel) {
+        const char* name = nullptr;
+        const PaError error = PaAsio_GetOutputChannelName(index, channel, &name);
+        if (error != paNoError) {
+            throw std::runtime_error(std::string("ASIO channel name: ") + Pa_GetErrorText(error));
+        }
+        if (name == nullptr) {
+            throw std::runtime_error("ASIO channel name is missing");
+        }
+        std::cout << "ASIO output channel " << channel << ": " << name << '\n';
+    }
+#else
+    (void)index;
+    throw std::runtime_error("ASIO channel inspection is not enabled in this build");
+#endif
 }
 
 void probe(int index, bool exclusive, int channels, int sample_rate,
@@ -197,6 +229,8 @@ int main(int argc, char* argv[]) {
     try {
         if (argc == 1 || (argc == 2 && std::string(argv[1]) == "--list")) {
             list_devices();
+        } else if (argc == 3 && std::string(argv[1]) == "--asio-channels") {
+            list_asio_channels(parse_int(argv[2], 0, 10000));
         } else if ((argc == 5 || argc == 6) && std::string(argv[1]) == "--format") {
             const std::string mode(argv[3]);
             if (mode != "shared" && mode != "exclusive" && mode != "default") {
@@ -218,7 +252,7 @@ int main(int argc, char* argv[]) {
                   parse_int(argv[4], 1, 3600));
         } else {
             throw std::invalid_argument(
-                "usage: rood_pa_probe [--list | --format INDEX shared|exclusive|default CHANNELS [RATE] | "
+                "usage: rood_pa_probe [--list | --asio-channels INDEX | --format INDEX shared|exclusive|default CHANNELS [RATE] | "
                 "--timing INDEX shared|exclusive|default SECONDS CHANNELS [RATE]]");
         }
     } catch (const std::exception& error) {
