@@ -11,6 +11,7 @@ namespace rood {
 struct ReceiveConfig {
     std::uint16_t port = 9000;
     int srtLatencyMs = 120;
+    int srtReceiveBufferBytes = 0; // 0 keeps the libsrt default.
 };
 
 struct TrackInfo {
@@ -49,6 +50,7 @@ struct ConnectionStats {
     std::int64_t receivedBytes = 0;
     int lostPackets = 0;
     int retransmittedPacketsInInterval = 0;
+    int receiveBufferCapacityBytes = 0;
     int receiveBufferBytes = 0;
     int receiveBufferMs = 0;
 };

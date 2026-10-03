@@ -93,6 +93,10 @@ struct ReadContext {
         stats.receivedBytes = static_cast<std::int64_t>(raw.byteRecvTotal);
         stats.lostPackets = raw.pktRcvLossTotal;
         stats.retransmittedPacketsInInterval = raw.pktRcvRetrans;
+        int capacityLength = sizeof(stats.receiveBufferCapacityBytes);
+        if (srt_getsockflag(socket, SRTO_RCVBUF,
+                            &stats.receiveBufferCapacityBytes, &capacityLength) == SRT_ERROR)
+            stats.receiveBufferCapacityBytes = 0;
         stats.receiveBufferBytes = raw.byteRcvBuf;
         stats.receiveBufferMs = raw.msRcvBuf;
         observer.onStats(stats);
@@ -300,14 +304,22 @@ void receiveSession(SRTSOCKET socket, std::atomic_bool& stop, MediaReceiverObser
 
 void runMediaReceiver(const ReceiveConfig& config, std::atomic_bool& stop,
                       MediaReceiverObserver& observer) {
-    if (config.port == 0 || config.srtLatencyMs < 20 || config.srtLatencyMs > 8000)
-        throw std::invalid_argument("port must be nonzero and SRT latency must be 20..8000 ms");
+    if (config.port == 0 || config.srtLatencyMs < 20 || config.srtLatencyMs > 8000 ||
+        (config.srtReceiveBufferBytes != 0 &&
+         (config.srtReceiveBufferBytes < 64 * 1024 ||
+          config.srtReceiveBufferBytes > 16 * 1024 * 1024)))
+        throw std::invalid_argument(
+            "port must be nonzero, SRT latency 20..8000 ms and receive buffer 0 or 64..16384 KiB");
     SrtRuntime runtime;
     Socket listener(srt_create_socket());
     if (listener.get() == SRT_INVALID_SOCK)
         throw std::runtime_error(std::string("srt_create_socket: ") + srt_getlasterror_str());
     checkSrt(srt_setsockflag(listener.get(), SRTO_RCVLATENCY, &config.srtLatencyMs,
                              sizeof(config.srtLatencyMs)), "SRTO_RCVLATENCY");
+    if (config.srtReceiveBufferBytes > 0)
+        checkSrt(srt_setsockflag(listener.get(), SRTO_RCVBUF,
+                                 &config.srtReceiveBufferBytes,
+                                 sizeof(config.srtReceiveBufferBytes)), "SRTO_RCVBUF");
     sockaddr_in address = {};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_ANY);

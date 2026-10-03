@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.21)
 
 project(rood VERSION 0.1.0 LANGUAGES CXX)
 
+# CMake 3.26 can misdecode Japanese MSVC /showIncludes output when generating
+# Ninja rules. In that case headers vanish from Ninja's dependency database.
+if(MSVC AND CMAKE_GENERATOR STREQUAL "Ninja" AND
+   CMAKE_CXX_CL_SHOWINCLUDES_PREFIX MATCHES "^繝")
+    set(CMAKE_CL_SHOWINCLUDES_PREFIX "メモ: インクルード ファイル:  ")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -142,6 +149,7 @@ if(ROOD_BUILD_GUI)
     if(Qt6Widgets_FOUND)
         add_executable(rood_gui WIN32 apps/gui/main.cpp)
         target_link_libraries(rood_gui PRIVATE rood_engine Qt6::Widgets)
+        target_compile_definitions(rood_gui PRIVATE ROOD_APP_VERSION="${PROJECT_VERSION}")
         if(TARGET rood_media AND TARGET rood_audio AND TARGET rood_video AND TARGET rood_omt)
             target_sources(rood_gui PRIVATE apps/gui/MediaWindow.cpp)
             target_link_libraries(rood_gui PRIVATE rood_media rood_audio rood_video rood_omt)

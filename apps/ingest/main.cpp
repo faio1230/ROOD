@@ -177,7 +177,9 @@ public:
                   << " bytes=" << stats.receivedBytes << " loss=" << stats.lostPackets
                   << " retransInterval=" << stats.retransmittedPacketsInInterval
                   << " receiveBufferBytes=" << stats.receiveBufferBytes
-                  << " receiveBufferMs=" << stats.receiveBufferMs << std::endl;
+                  << " receiveBufferMs=" << stats.receiveBufferMs
+                  << " receiveBufferCapacityBytes=" << stats.receiveBufferCapacityBytes
+                  << std::endl;
 #ifdef ROOD_HAS_OMT_OUTPUT
         if (omtOutput) {
             const auto omt = omtOutput->stats();
@@ -215,6 +217,8 @@ public:
                       << " driftLocked=" << audio.driftLocked
                       << " driftPpm=" << audio.driftCorrectionPpm
                       << " driftErrorMs=" << audio.driftErrorMs
+                      << " observedSampleRate=" << audio.observedSampleRate
+                      << " sampleClockMismatch=" << audio.sampleClockMismatch
                       << " deviceAvailable=" << audio.deviceAvailable
                       << " reopenAttempts=" << audio.reopenAttempts
                       << " recoveries=" << audio.recoveries << std::endl;
@@ -272,6 +276,8 @@ int main(int argc, char** argv) {
                 config.port = static_cast<std::uint16_t>(readNumber(argv[++i], 1, 65535));
             else if (argument == "--latency" && i + 1 < argc)
                 config.srtLatencyMs = readNumber(argv[++i], 20, 8000);
+            else if (argument == "--srt-buffer-kib" && i + 1 < argc)
+                config.srtReceiveBufferBytes = readNumber(argv[++i], 64, 16384) * 1024;
             else if (argument == "--seconds" && i + 1 < argc)
                 seconds = readNumber(argv[++i], 1, 86400);
             else if (argument == "--require-media")
@@ -331,7 +337,7 @@ int main(int argc, char** argv) {
             }
 #endif
             else {
-                std::cerr << "usage: rood_ingest [--port N] [--latency MS]"
+                std::cerr << "usage: rood_ingest [--port N] [--latency MS] [--srt-buffer-kib N]"
                              " [--seconds N] [--require-media]"
 #ifdef ROOD_HAS_AUDIO_OUTPUT
                              " [--audio-device INDEX --audio-channels N --audio-rate HZ"

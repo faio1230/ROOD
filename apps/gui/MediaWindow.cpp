@@ -3,9 +3,11 @@
 #include "rood/RecoveringAudioOutput.hpp"
 #include "rood/SpoutVideoOutput.hpp"
 
+#include <QAction>
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDateTime>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -13,6 +15,8 @@
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QMessageBox>
+#include <QMenu>
+#include <QMenuBar>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
@@ -48,6 +52,7 @@ struct SessionSnapshot {
     std::string state = "停止中";
     std::string error;
     std::vector<std::string> tracks;
+    std::vector<std::string> events;
     rood::ConnectionStats connection;
     rood::RecoveringAudioOutputStats audio;
     rood::SpoutVideoStats spout;
@@ -73,6 +78,7 @@ public:
             snapshot_.hasAudio = config.audio.has_value();
             snapshot_.hasSpout = config.spout.has_value();
             snapshot_.hasOmt = config.omt.has_value();
+            appendEventLocked("受信開始");
         }
         stopRequested_.store(false);
         running_.store(true);
@@ -108,6 +114,7 @@ public:
                 std::lock_guard<std::mutex> lock(mutex_);
                 snapshot_.state = "エラー";
                 snapshot_.error = error.what();
+                appendEventLocked("エラー: " + snapshot_.error);
             }
             running_.store(false);
         }); } catch (...) {
@@ -137,6 +144,7 @@ public:
         }
         std::lock_guard<std::mutex> lock(mutex_);
         snapshot_.state = state;
+        appendEventLocked("SRT: " + state);
         if (state == "connected") {
             snapshot_.tracks.clear();
             spoutFailed_ = omtFailed_ = false;
@@ -179,6 +187,16 @@ public:
         const auto spout = spout_ ? spout_->stats() : rood::SpoutVideoStats{};
         const auto omt = omt_ ? omt_->stats() : rood::OmtOutputStats{};
         std::lock_guard<std::mutex> lock(mutex_);
+        if (snapshot_.hasAudio) {
+            if (snapshot_.hasConnectionStats &&
+                snapshot_.audio.deviceAvailable != audio.deviceAvailable)
+                appendEventLocked(audio.deviceAvailable
+                    ? "音声デバイス復帰" : "音声デバイス待機中");
+            if (!audio.lastError.empty() && audio.lastError != snapshot_.audio.lastError)
+                appendEventLocked("音声: " + audio.lastError);
+            if (audio.sampleClockMismatch && !snapshot_.audio.sampleClockMismatch)
+                appendEventLocked("音声デバイスの実効速度が申告レートから5%超ずれています");
+        }
         snapshot_.connection = connection;
         snapshot_.audio = audio;
         snapshot_.spout = spout;
@@ -191,9 +209,17 @@ public:
     void onError(const std::string& error) override {
         std::lock_guard<std::mutex> lock(mutex_);
         snapshot_.error = error;
+        appendEventLocked("エラー: " + error);
     }
 
 private:
+    void appendEventLocked(const std::string& message) {
+        const std::string clock = QDateTime::currentDateTime()
+            .toString(QStringLiteral("HH:mm:ss")).toStdString();
+        if (snapshot_.events.size() == 50) snapshot_.events.erase(snapshot_.events.begin());
+        snapshot_.events.push_back(clock + "  " + message);
+    }
+
     mutable std::mutex mutex_;
     SessionSnapshot snapshot_;
     std::atomic_bool stopRequested_{false};
@@ -259,6 +285,16 @@ public:
     MediaWindow() {
         setWindowTitle(QStringLiteral("ROOD | SRT受信・分配"));
         resize(1100, 780);
+        auto* help = menuBar()->addMenu(QStringLiteral("ヘルプ"));
+        auto* about = help->addAction(QStringLiteral("ROODについて"));
+        connect(about, &QAction::triggered, this, [this] {
+            QMessageBox::about(this, QStringLiteral("ROODについて"),
+                QStringLiteral("ROOD %1\nStudio Sandix 開発コード\n\n"
+                               "SRT受信・Spout2／OMT分配・ASIO／WASAPI音声出力\n\n"
+                               "このソフトウェアはFFmpegプロジェクトのライブラリを"
+                               "LGPL v2.1以降の条件で使用しています。")
+                    .arg(QCoreApplication::applicationVersion()));
+        });
         auto* central = new QWidget(this);
         auto* root = new QVBoxLayout(central);
         auto* heading = new QLabel(QStringLiteral("ROOD  •  SRT RECEIVE & ROUTE"), central);
@@ -288,8 +324,11 @@ public:
         auto* inputForm = new QFormLayout(inputGroup);
         port_ = spin(1, 65535, 9000, inputGroup);
         latency_ = spin(20, 8000, 120, inputGroup);
+        receiveBufferKiB_ = spin(0, 16384, 0, inputGroup);
+        receiveBufferKiB_->setSpecialValueText(QStringLiteral("libsrt既定"));
         inputForm->addRow(QStringLiteral("待受UDPポート"), port_);
         inputForm->addRow(QStringLiteral("SRT遅延 (ms)"), latency_);
+        inputForm->addRow(QStringLiteral("受信バッファ容量 (KiB)"), receiveBufferKiB_);
         settingsLayout->addWidget(inputGroup);
 
         auto* audioGroup = new QGroupBox(QStringLiteral("音声デバイス"), settings);
@@ -394,6 +433,10 @@ private:
             SessionConfig config;
             config.receive.port = static_cast<std::uint16_t>(port_->value());
             config.receive.srtLatencyMs = latency_->value();
+            const int bufferKiB = receiveBufferKiB_->value();
+            if (bufferKiB > 0 && bufferKiB < 64)
+                throw std::invalid_argument("受信バッファ容量は64 KiB以上にしてください");
+            config.receive.srtReceiveBufferBytes = bufferKiB * 1024;
             if (audioEnabled_->isChecked()) {
                 rood::AudioOutputConfig audio;
                 audio.deviceIndex = device_->currentData().toInt();
@@ -441,9 +484,11 @@ private:
             text += QStringLiteral("SRT  %1 Mb/s  RTT %2 ms\n")
                 .arg(snapshot.connection.receiveMbps, 0, 'f', 2)
                 .arg(snapshot.connection.rttMs, 0, 'f', 1);
-            text += QStringLiteral("受信バッファ: %1 ms / %2 bytes\n")
+            text += QStringLiteral("受信キュー使用量: %1 ms / %2 bytes\n")
                 .arg(snapshot.connection.receiveBufferMs)
                 .arg(snapshot.connection.receiveBufferBytes);
+            text += QStringLiteral("受信バッファ容量: %1 bytes\n")
+                .arg(snapshot.connection.receiveBufferCapacityBytes);
             text += QStringLiteral("損失: %1  再送: %2\n")
                 .arg(snapshot.connection.lostPackets)
                 .arg(snapshot.connection.retransmittedPacketsInInterval);
@@ -464,6 +509,11 @@ private:
                 .arg(snapshot.audio.deviceAvailable ? QStringLiteral("利用可能") : QStringLiteral("待機中"))
                 .arg(snapshot.audio.reopenAttempts)
                 .arg(snapshot.audio.recoveries);
+        if (snapshot.hasAudio && snapshot.audio.observedSampleRate > 0)
+            text += QStringLiteral("実測コールバック速度: %1 frames/s  申告レートとの差: %2\n")
+                .arg(snapshot.audio.observedSampleRate, 0, 'f', 0)
+                .arg(snapshot.audio.sampleClockMismatch
+                    ? QStringLiteral("5%超") : QStringLiteral("5%以内"));
         if (snapshot.hasSpout)
             text += QStringLiteral("\nSpout  受信 %1  送信 %2  破棄 %3  失敗 %4\n")
                 .arg(snapshot.spout.receivedFrames)
@@ -484,6 +534,9 @@ private:
         text += QStringLiteral("\n検出トラック\n");
         for (const auto& track : snapshot.tracks)
             text += QString::fromStdString(track) + '\n';
+        text += QStringLiteral("\n接続履歴（新しい順）\n");
+        for (auto event = snapshot.events.rbegin(); event != snapshot.events.rend(); ++event)
+            text += QString::fromStdString(*event) + '\n';
         status_->setPlainText(text);
         startButton_->setEnabled(!session_.running());
         stopButton_->setEnabled(session_.running());
@@ -493,6 +546,7 @@ private:
     MediaSession session_;
     QSpinBox* port_ = nullptr;
     QSpinBox* latency_ = nullptr;
+    QSpinBox* receiveBufferKiB_ = nullptr;
     QCheckBox* audioEnabled_ = nullptr;
     QComboBox* device_ = nullptr;
     QSpinBox* audioChannels_ = nullptr;

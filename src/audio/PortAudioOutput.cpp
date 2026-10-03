@@ -34,6 +34,8 @@ extern "C" {
 namespace rood {
 namespace {
 
+using Clock = std::chrono::steady_clock;
+
 std::string ffmpegError(int code) {
     char buffer[AV_ERROR_MAX_STRING_SIZE] = {};
     av_strerror(code, buffer, sizeof(buffer));
@@ -263,6 +265,7 @@ public:
         resampler.setNextFrame(position + static_cast<std::int64_t>(available));
         if (!started_.load() && accepted > 0) {
             checkPa(Pa_StartStream(stream_.get()), "Pa_StartStream");
+            streamStartTicks_.store(Clock::now().time_since_epoch().count());
             started_.store(true);
         }
     }
@@ -271,6 +274,7 @@ public:
         if (started_.load()) {
             Pa_StopStream(stream_.get());
             started_.store(false);
+            streamStartTicks_.store(0);
         }
         resamplers_.clear();
         timeline_.reset();
@@ -299,6 +303,16 @@ public:
         result.driftCorrectionPpm = driftPpm_.load();
         result.driftErrorMs = driftErrorMs_.load();
         result.driftLocked = driftLocked_.load();
+        const auto startTicks = streamStartTicks_.load();
+        if (startTicks != 0) {
+            const auto started = Clock::time_point(Clock::duration(startTicks));
+            const double elapsed = std::chrono::duration<double>(Clock::now() - started).count();
+            if (elapsed >= 5.0) {
+                result.observedSampleRate = result.playheadFrames / elapsed;
+                result.sampleClockMismatch =
+                    std::fabs(result.observedSampleRate / config_.sampleRate - 1.0) > 0.05;
+            }
+        }
         return result;
     }
 
@@ -340,6 +354,7 @@ private:
     std::atomic<double> originSeconds_{0};
     std::atomic<double> mediaPosition_{0};
     std::atomic_bool started_{false};
+    std::atomic<Clock::duration::rep> streamStartTicks_{0};
     ClockRecovery clockRecovery_;
     std::chrono::steady_clock::time_point lastClockObservation_;
     std::atomic<double> driftPpm_{0};

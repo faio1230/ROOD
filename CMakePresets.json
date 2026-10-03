@@ -48,12 +48,30 @@
       }
     },
     {
+      "name": "windows-msvc-media-release",
+      "inherits": "windows-msvc-media-dev",
+      "displayName": "ROOD Windows MSVC release candidate",
+      "binaryDir": "${sourceDir}/build/msvc-media-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
       "name": "windows-msvc-media-asio-test",
       "inherits": "windows-msvc-media-dev",
       "displayName": "ROOD media engine with isolated ASIO driver",
       "binaryDir": "${sourceDir}/build/msvc-media-asio",
       "cacheVariables": {
         "CMAKE_PREFIX_PATH": "${sourceDir}/build/deps/qt/6.10.3/msvc2022_64;${sourceDir}/build/deps/portaudio-asio-msvc-test-install;${sourceDir}/build/deps/vcpkg-installed/x64-windows;${sourceDir}/build/deps/spout2-msvc-install"
+      }
+    },
+    {
+      "name": "windows-msvc-media-asio-release-test",
+      "inherits": "windows-msvc-media-asio-test",
+      "displayName": "ROOD Windows MSVC ASIO release performance test",
+      "binaryDir": "${sourceDir}/build/msvc-media-asio-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
@@ -76,8 +94,16 @@
       "configurePreset": "windows-msvc-media-dev"
     },
     {
+      "name": "windows-msvc-media-release",
+      "configurePreset": "windows-msvc-media-release"
+    },
+    {
       "name": "windows-msvc-media-asio-test",
       "configurePreset": "windows-msvc-media-asio-test"
+    },
+    {
+      "name": "windows-msvc-media-asio-release-test",
+      "configurePreset": "windows-msvc-media-asio-release-test"
     },
     {
       "name": "windows-msvc-asio-test",
@@ -104,8 +130,18 @@
       "output": { "outputOnFailure": true }
     },
     {
+      "name": "windows-msvc-media-release",
+      "configurePreset": "windows-msvc-media-release",
+      "output": { "outputOnFailure": true }
+    },
+    {
       "name": "windows-msvc-media-asio-test",
       "configurePreset": "windows-msvc-media-asio-test",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows-msvc-media-asio-release-test",
+      "configurePreset": "windows-msvc-media-asio-release-test",
       "output": { "outputOnFailure": true }
     },
     {

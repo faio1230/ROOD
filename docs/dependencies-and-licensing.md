@@ -27,3 +27,23 @@ Qt 6.10の[Windows対応表](https://doc.qt.io/qt-6.10/windows.html)はMSVC 2022
 SteinbergはASIO SDKについて[オープンソース版とプロプライエタリ版](https://www.steinberg.net/developers/)を案内しています。取得した2.3.4の `LICENSE.txt` にはGPLv3またはSteinberg独自ライセンスの選択肢が記されています。自作部分をMITにしても、ASIO対応バイナリ全体をMITだけの条件で配布できると想定しません。SDK現物の条項とPortAudioの結合形態を確認してから、公開ライセンスと配布方式を決めます。
 
 自作コードのMITライセンスは候補のままで、まだLICENSEファイルやGitHub公開設定を作っていません。
+
+## 配布構成の候補
+
+現状の `windows-msvc-media-dev` はWASAPI専用のPortAudio DLLを使い、Steinberg ASIO SDKを含みません。自作コードをMITにする場合、この構成を最初の公開候補にします。ただし、MITはROOD自作コードの条件であり、同梱DLLの条件を置き換えるものではありません。実際に配布するファイルを確定して、各ライセンスの義務を満たしてから公開します。
+
+`windows-msvc-media-asio-test` はSDK 2.3.4を使うローカル検証用です。取得したSDKの `LICENSE.txt` はGPLv3とSteinberg独自ライセンスを選択肢として記載し、独自ライセンスでの公開にはSteinbergが署名した契約書を求めています。ASIO対応バイナリを出す場合は、GPLv3に沿う配布構成を整えるか、Steinbergとの契約を取得するかを先に決めます。どちらの場合もSDK内の各ファイルにある個別のライセンス表示を確認します。現時点でASIO検証版を配布物に転用しません。
+
+| 対象 | 現在の確認結果 | 公開前に実施すること |
+| --- | --- | --- |
+| ROOD自作コード | ライセンス未決定、MITが候補 | 権利者とライセンスを決め、`LICENSE` と著作権表示を追加する |
+| Qt 6.10.3 `Core` / `Gui` / `Widgets` | 動的ライブラリでリンク。Qt 6.10はLGPLv3でのアプリ開発を案内する | 同梱するQt DLL・プラグインを列挙し、各モジュールとQt内の第三者コードの通知、利用者が互換DLLへ差し替えられる構成、対応ソースを確認する |
+| FFmpeg 8.1.2 | 実行時ライセンス表示は `LGPL version 2.1 or later`。GPL／nonfree機能なし | 配布DLLと一致するソース、vcpkgパッチ、configure/build設定を保存して提供する。ダウンロードページとアプリのAbout表示にFFmpegとソース入手先を明記する |
+| libsrt 1.5.6 | [MPL-2.0](https://github.com/Haivision/srt/blob/v1.5.6/LICENSE)、共有DLL | ライセンス・著作権表示、配布DLLと一致するライブラリソースと変更有無を整理する |
+| OpenSSL 3.6.3 | libsrtが使用。vcpkgの共有DLL | ライセンス・通知文を同梱し、実際のDLLと依存関係を検査する |
+| PortAudio v19.7.0 | WASAPI版はASIO SDKなし、共有DLL | MITライセンス・著作権表示、公開ビルドと検証用ASIOビルドの混入防止を確認する |
+| Spout2 2.007.017 | BSD-2-Clause、MSVC共有DLL | ライセンス・著作権表示を同梱する |
+| OMT v1.0.0.16 | 配布ZIPにMITライセンス。`libomt` と `libvmx` を使用 | 両DLLの配布元・版・同梱ライセンスを記録し、通知文を同梱する |
+| Steinberg ASIO SDK 2.3.4 | ローカル検証用のみ | ASIO対応バイナリの公開経路を選び、SDKの各ファイルの条項と配布物を照合する |
+
+[Qt 6.10のライセンス案内](https://doc.qt.io/qt-6.10/licensing.html)はモジュールによって条件が異なること、第三者コードの通知とSBOMを確認できることを示しています。[FFmpeg公式のチェックリスト](https://ffmpeg.org/legal.html)はDLLリンクに加え、一致するソース、ビルド方法、配布ページとAbout表示への記載を求めています。公開用パッケージを作る際は、この表を実ファイル一覧と照合して更新します。

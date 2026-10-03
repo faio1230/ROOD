@@ -5,7 +5,7 @@ ROODは、SRTの受信・分配・接続状況の監視に特化したWindowsア
 ## 現在できること
 
 - C++17のエンジンで、タイムスタンプに沿って整列済みの複数音声トラックを、任意の出力チャンネルへ割り当て・複製・加算できます。
-- Qt 6 Widgetsの画面から、SRT待受、音声デバイスとチャンネル経路、Spout2／OMT出力を設定して受信開始・停止できます。接続状態、検出トラック、SRT統計、出力統計を表示します。
+- Qt 6 Widgetsの画面から、SRT待受と受信バッファ容量、音声デバイスとチャンネル経路、Spout2／OMT出力を設定して受信開始・停止できます。接続状態と直近50件の履歴、検出トラック、SRT統計、出力統計を表示します。
 - PortAudio開発ファイルが見つかる環境では、デバイス列挙、WASAPI共有／排他の形式確認、無音出力時のタイムスタンプ確認ができます。
 - 開発用CLI `rood_ingest` がSRT listenerでMPEG-TSを受信し、FFmpegで映像と複数音声トラックを分離・デコードします。ストリームID、チャンネル構成、PTS、受信統計を表示し、切断後は再び待ち受けます。
 - `rood_ingest` に音声デバイスを指定すると、各トラックのチャンネルを任意の出力チャンネルへ割り当て、必要なサンプルレート変換を行ってPortAudioのWASAPI／ASIOデバイスへ出力できます。出力遅延をミリ秒で指定できます。デバイスが使えなくなった場合は同じ名前とホストAPIを再列挙し、1秒間隔で開き直します。
@@ -40,6 +40,8 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 ./scripts/run-gui-msvc.cmd
 ```
 
+最適化したWASAPI版の確認には `./scripts/build-media-release-msvc.cmd` を使います。Debug版とは別の `build/msvc-media-release` に出力し、同じ固定済み依存でビルドとCTestを実行します。ASIO SDKはこの構成に入りません。
+
 `vcpkg.json` はlibsrt 1.5.6とFFmpeg 8.1.2の共有ライブラリ構成を固定します。FFmpegは `avcodec`、`avformat`、`swresample`、`swscale` のみを指定し、GPL／nonfreeの追加機能を選びません。Spout2は2.007.017のソースを固定してMSVCで構築し、OMTはv1.0.0.16の公式Windows x64配布物をSHA-256で確認します。Spout2とOMTの出力は開発用CLIから利用できます。
 
 `build-media-msvc.cmd` は全ライブラリをリンクする `rood_deps_probe` を起動します。このPCではFFmpeg DLLが `LGPL version 2.1 or later` と報告し、libsrt・Spout2・OMTのシンボルも解決できました。
@@ -48,10 +50,10 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 
 ### SRT受信の確認
 
-受信側を起動するとUDPポート9000で待ち受けます。このコマンドでは映像・音声フレームを診断用コールバックへ渡し、音声デバイスには出しません。
+受信側を起動するとUDPポート9000で待ち受けます。このコマンドでは映像・音声フレームを診断用コールバックへ渡し、音声デバイスには出しません。`--latency` はSRTの受信遅延、`--srt-buffer-kib` はSRT受信バッファの容量です。容量だけを増やしても意図した出力遅延は増えません。後者を省略するとlibsrtの既定値を使います。統計の `receiveBufferBytes` / `receiveBufferMs` は現在のキュー使用量、`receiveBufferCapacityBytes` はlibsrtから読み返した実効容量です。[libsrtの設定資料](https://github.com/Haivision/srt/blob/v1.5.6/docs/API/configuration-guidelines.md)に従い、容量は接続前に設定し、内部でパケット数へ丸められます。256 KiBを指定した短時間試験では実効容量262,016 bytesを確認しました。
 
 ```powershell
-./scripts/run-ingest-msvc.cmd --port 9000 --latency 120
+./scripts/run-ingest-msvc.cmd --port 9000 --latency 120 --srt-buffer-kib 1024
 ```
 
 音声デバイスへの出力例。デバイス番号は `./scripts/list-audio-devices-msvc.cmd` で確認します。以下のトラックIDはループバック用MPEG-TSの例です。`--route` は `トラックID:入力チャンネル:出力チャンネル[:ゲイン]` で、チャンネル番号は0始まりです。`--wasapi-exclusive` を加えるとWASAPI排他モードになります。
@@ -73,7 +75,11 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 
 Spout出力のみを試す場合は `./scripts/run-ingest-msvc.cmd --port 9000 --spout ROOD` を使います。`--video-delay`、`--video-offset`、`--video-late-drop` はミリ秒単位です。音声デバイスを同時指定すると音声コールバックの推定メディア時刻を映像の基準に使います。デコードスレッドがRGBAに変換して有界キューへ入れ、別スレッドが表示時刻に合わせて送信します。`-SpoutName` 付きループバックでは別プロセスのSpout受信器が画像画素を取得したことまで確認します。
 
-OMT出力の例は `./scripts/run-ingest-msvc.cmd --port 9000 --omt ROOD --omt-channels 2 --omt-rate 48000 --omt-delay 250 --omt-route 257:0:0 --omt-route 258:5:1` です。OMT出力は映像BGRAと最大32チャンネルの平面float32音声を出します。別プロセスの受信プローブで映像画素と両音声チャンネルの非無音サンプルを確認済みです。音声デバイスとOMTの時刻基準は現時点では別なので、同時出力の長時間同期は未検証です。
+OMT出力の例は `./scripts/run-ingest-msvc.cmd --port 9000 --omt ROOD --omt-channels 2 --omt-rate 48000 --omt-delay 250 --omt-route 257:0:0 --omt-route 258:5:1` です。OMT出力は映像BGRAと最大32チャンネルの平面float32音声を出します。別プロセスの受信プローブで映像画素と32チャンネル音声を受信し、ステレオトラックを0番、別の5.1トラックの6番目を31番に割り当てた信号を確認済みです。音声デバイスとOMTの時刻基準は現時点では別なので、同時出力の長時間同期は未検証です。
+
+```powershell
+./scripts/test-srt-loopback.ps1 -OmtName ROOD-32ch -OmtChannels 32 -OmtRoutes @('257:0:0','258:5:31') -OmtSignalChannels '0,31' -LogName srt-omt-32ch
+```
 
 別の端末からSRT callerでMPEG-TSを送ります。`--seconds 20` で自動終了、Ctrl+Cでも停止できます。任意のポートを使うループバック検証は、FFmpeg CLIがある環境で次を実行します。
 
@@ -91,6 +97,8 @@ ASIO検証用PortAudioでは、ドライバを絞ったうえで別プリセッ�
 ```
 
 ASIOの検証用ビルドにはSteinberg公式ASIO SDK 2.3.4をローカルで使います。初回のPowerShellスクリプトは公式配布URLから取得し、SHA-256を照合します。SDKとビルド成果物は `build/` 以下に置き、Gitへ含めません。検証用PortAudioパッチは環境変数で1つのASIOドライバだけを開くためのもので、通常ビルドには適用しません。
+
+**このPCのVB-Matrix仮想ASIOでは、44.1 kHzを申告しながら実際のコールバック消費速度は約24.5 kframes/sでした。** 短時間の開設成功は連続出力の合格を意味しません。20～30秒のSRT受信では音声とSpout映像が大量に破棄されたため、このドライバでのASIO採用は保留です。`rood_pa_probe --timing` は申告レートと実効速度が5%以上ずれると失敗します。詳細は[PortAudio検証記録](docs/portaudio-validation.md)を参照してください。
 
 ```powershell
 ./scripts/prepare-portaudio-asio.ps1

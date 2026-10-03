@@ -36,6 +36,8 @@ struct AudioOutputStats {
     double driftCorrectionPpm = 0.0;
     double driftErrorMs = 0.0;
     bool driftLocked = false;
+    double observedSampleRate = 0.0;
+    bool sampleClockMismatch = false;
 };
 
 struct AudioDeviceInfo {

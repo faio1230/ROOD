@@ -6,12 +6,20 @@ param(
     [string]$PortAudioBin = '',
     [int]$AudioChannels = 2,
     [int]$AudioRate = 48000,
+    [int]$AudioDelayMs = 250,
+    [int]$VideoDelayMs = 250,
+    [int]$SrtLatencyMs = 120,
+    [int]$SrtBufferKiB = 0,
     [string[]]$Routes = @('257:0:0', '258:5:1'),
     [string]$AsioOnly = '',
     [string]$SpoutName = '',
     [string]$OmtName = '',
+    [int]$OmtChannels = 2,
+    [string[]]$OmtRoutes = @('257:0:0', '258:5:1'),
+    [string]$OmtSignalChannels = '0,1',
     [int]$FirstSeconds = 5,
-    [int]$ReceiverSeconds = 20
+    [int]$ReceiverSeconds = 20,
+    [string]$LogName = 'srt-loopback'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,8 +39,23 @@ if ($FirstSeconds -lt 3 -or $FirstSeconds -gt 3600 -or
     $ReceiverSeconds -lt ($FirstSeconds + 10) -or $ReceiverSeconds -gt 3700) {
     throw 'ReceiverSeconds must be at least FirstSeconds + 10.'
 }
+if ($LogName -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$') {
+    throw 'LogName must contain only letters, digits, underscores and hyphens.'
+}
+if ($OmtName -and ($OmtChannels -lt 1 -or $OmtChannels -gt 32 -or
+                   $OmtRoutes.Count -eq 0 -or -not $OmtSignalChannels)) {
+    throw 'OMT requires 1-32 channels, at least one route and signal channels.'
+}
+if ($SrtBufferKiB -ne 0 -and ($SrtBufferKiB -lt 64 -or $SrtBufferKiB -gt 16384)) {
+    throw 'SrtBufferKiB must be 0 or 64..16384.'
+}
+if ($AudioDelayMs -lt 0 -or $AudioDelayMs -gt 3000 -or
+    $VideoDelayMs -lt 0 -or $VideoDelayMs -gt 5000 -or
+    $SrtLatencyMs -lt 20 -or $SrtLatencyMs -gt 8000) {
+    throw 'AudioDelayMs, VideoDelayMs or SrtLatencyMs is outside the supported range.'
+}
 
-$logDir = Join-Path $repo 'build/tests/srt-loopback'
+$logDir = Join-Path $repo "build/tests/$LogName"
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 $stdout = Join-Path $logDir 'receiver.stdout.txt'
 $stderr = Join-Path $logDir 'receiver.stderr.txt'
@@ -40,17 +63,21 @@ Remove-Item -LiteralPath $stdout, $stderr -ErrorAction SilentlyContinue
 $port = Get-Random -Minimum 20000 -Maximum 50000
 $env:PATH = "$runtimeBin;$PortAudioBin;$spoutBin;$omtBin;$env:PATH"
 if ($AsioOnly) { $env:ROOD_ASIO_ONLY = $AsioOnly }
-$receiverArgs = @('--port', "$port", '--seconds', "$ReceiverSeconds", '--require-media')
+$receiverArgs = @('--port', "$port", '--latency', "$SrtLatencyMs",
+                  '--seconds', "$ReceiverSeconds", '--require-media')
+if ($SrtBufferKiB -gt 0) { $receiverArgs += @('--srt-buffer-kib', "$SrtBufferKiB") }
 if ($AudioDevice -ge 0) {
     $receiverArgs += @('--audio-device', "$AudioDevice", '--audio-channels', "$AudioChannels",
-                       '--audio-rate', "$AudioRate", '--audio-delay', '250')
+                       '--audio-rate', "$AudioRate", '--audio-delay', "$AudioDelayMs")
     foreach ($route in $Routes) { $receiverArgs += @('--route', $route) }
     if ($WasapiExclusive) { $receiverArgs += '--wasapi-exclusive' }
 }
-if ($SpoutName) { $receiverArgs += @('--spout', $SpoutName) }
+if ($SpoutName) {
+    $receiverArgs += @('--spout', $SpoutName, '--video-delay', "$VideoDelayMs")
+}
 if ($OmtName) {
-    $receiverArgs += @('--omt', $OmtName, '--omt-channels', '2',
-                       '--omt-route', '257:0:0', '--omt-route', '258:5:1')
+    $receiverArgs += @('--omt', $OmtName, '--omt-channels', "$OmtChannels")
+    foreach ($route in $OmtRoutes) { $receiverArgs += @('--omt-route', $route) }
 }
 $receiver = Start-Process -FilePath $ReceiverExe -ArgumentList $receiverArgs `
     -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
@@ -71,15 +98,15 @@ $omtProbe = $null
 
 function Invoke-TestSender {
     param([string[]]$SenderArgs)
-    for ($attempt = 1; $attempt -le 3; ++$attempt) {
+    for ($attempt = 1; $attempt -le 8; ++$attempt) {
         & $FfmpegPath @SenderArgs
         if ($LASTEXITCODE -eq 0) { return }
-        if ($attempt -lt 3) {
+        if ($attempt -lt 8) {
             Write-Warning "SRT sender connection failed (attempt $attempt); retrying."
-            Start-Sleep -Seconds 1
+            Start-Sleep -Milliseconds 750
         }
     }
-    throw 'FFmpeg sender failed after three connection attempts.'
+    throw 'FFmpeg sender failed after eight connection attempts.'
 }
 
 try {
@@ -111,7 +138,8 @@ try {
         $omtProbeStdout = Join-Path $logDir 'omt-probe.stdout.txt'
         $omtProbeStderr = Join-Path $logDir 'omt-probe.stderr.txt'
         Remove-Item -LiteralPath $omtProbeStdout, $omtProbeStderr -ErrorAction SilentlyContinue
-        $omtProbe = Start-Process -FilePath $probeExe -ArgumentList @("`"$omtAddress`"", '16') `
+        $omtProbe = Start-Process -FilePath $probeExe `
+            -ArgumentList @("`"$omtAddress`"", '16', "$OmtChannels", $OmtSignalChannels) `
             -RedirectStandardOutput $omtProbeStdout -RedirectStandardError $omtProbeStderr `
             -WindowStyle Hidden -PassThru
     }
@@ -126,7 +154,7 @@ try {
         '-c:v', 'mpeg2video', '-threads:v', '1', '-g', '25', '-b:v', '1M',
         '-c:a:0', 'mp2', '-b:a:0', '192k', '-ac:a:0', '2',
         '-c:a:1', 'ac3', '-b:a:1', '384k', '-f', 'mpegts',
-        "srt://127.0.0.1:${port}?mode=caller&latency=120"
+        "srt://127.0.0.1:${port}?mode=caller&latency=$SrtLatencyMs"
     )
     Invoke-TestSender -SenderArgs $firstSender
 
@@ -149,7 +177,7 @@ try {
         '-t', '3', '-map', '0:v:0', '-map', '1:a:0',
         '-c:v', 'mpeg2video', '-threads:v', '1', '-b:v', '500k',
         '-c:a', 'mp2', '-b:a', '128k', '-f', 'mpegts',
-        "srt://127.0.0.1:${port}?mode=caller&latency=120"
+        "srt://127.0.0.1:${port}?mode=caller&latency=$SrtLatencyMs"
     )
     Invoke-TestSender -SenderArgs $secondSender
 
@@ -189,11 +217,40 @@ try {
         if ($FirstSeconds -ge 15 -and $output -notmatch 'driftLocked=1') {
             throw "Clock recovery did not reach its measurement phase. See $stdout"
         }
+        if ($FirstSeconds -ge 15) {
+            $firstDisconnect = $output.IndexOf('state disconnected')
+            $firstOutput = $output.Substring(0, $firstDisconnect)
+            $firstAudio = [regex]::Matches($firstOutput, '(?m)^audio callbacks=.+$') |
+                Select-Object -Last 1
+            $firstRendered = [regex]::Match($firstAudio.Value, 'renderedFrames=(\d+)')
+            $firstRejected = [regex]::Match($firstAudio.Value, 'rejectedFrames=(\d+)')
+            if (-not $firstRendered.Success -or -not $firstRejected.Success) {
+                throw "First-connection audio statistics are missing. See $stdout"
+            }
+            $rendered = [long]$firstRendered.Groups[1].Value
+            $rejected = [long]$firstRejected.Groups[1].Value
+            if ($rendered -lt ($FirstSeconds * $AudioRate * 0.8) -or
+                $rejected -gt ($FirstSeconds * $AudioRate * 0.01) -or
+                $firstOutput -match 'sampleClockMismatch=1') {
+                throw "First-connection audio clock or media continuity failed. See $stdout"
+            }
+        }
     }
     if ($SpoutName -and
         ($output -notmatch 'spout received=[1-9]\d* sent=[1-9]\d*' -or
          $output -match 'error Spout output:')) {
         throw "Spout did not send decoded video. See $stdout and $stderr"
+    }
+    if ($SpoutName -and $FirstSeconds -ge 15) {
+        $firstOutput = $output.Substring(0, $output.IndexOf('state disconnected'))
+        $firstSpout = [regex]::Matches($firstOutput, '(?m)^spout received=.+$') |
+            Select-Object -Last 1
+        $received = [regex]::Match($firstSpout.Value, 'received=(\d+)')
+        $dropped = [regex]::Match($firstSpout.Value, 'dropped=(\d+)')
+        if (-not $received.Success -or -not $dropped.Success -or
+            [long]$dropped.Groups[1].Value -gt ([long]$received.Groups[1].Value * 0.01)) {
+            throw "First-connection Spout output dropped too many frames. See $stdout"
+        }
     }
     if ($spoutProbe) {
         $spoutProbe | Wait-Process -Timeout 20
@@ -209,7 +266,7 @@ try {
         $omtProbe.Refresh()
         $omtOutput = Get-Content -LiteralPath $omtProbeStdout -Raw
         if ($omtProbe.ExitCode -ne 0 -or
-            $omtOutput -notmatch 'omtProbe video=[1-9]\d* audio=[1-9]\d* size=\d+x\d+ channels=2 pixelSampleSum=[1-9]\d* audioSampleSum=') {
+            $omtOutput -notmatch "omtProbe video=[1-9]\d* audio=[1-9]\d* size=\d+x\d+ channels=$OmtChannels pixelSampleSum=[1-9]\d* audioSampleSum=") {
             throw "OMT receiver did not obtain video and routed audio. See $omtProbeStdout and $omtProbeStderr"
         }
     }

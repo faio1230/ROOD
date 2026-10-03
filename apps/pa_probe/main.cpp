@@ -4,6 +4,8 @@
 #endif
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -14,6 +16,7 @@ namespace {
 struct TimingStats {
     int channels = 0;
     unsigned long callbacks = 0;
+    unsigned long long total_frames = 0;
     unsigned long underflows = 0;
     unsigned long timestamp_regressions = 0;
     unsigned long first_regression_callback = 0;
@@ -54,6 +57,7 @@ int silence_callback(const void*, void* output, unsigned long frames,
         stats.maximum_dac_lead = std::max(stats.maximum_dac_lead, lead);
     }
     ++stats.callbacks;
+    stats.total_frames += frames;
     return paContinue;
 }
 
@@ -146,15 +150,22 @@ void probe(int index, bool exclusive, int channels, int sample_rate,
                   << " s, sample rate=" << info->sampleRate << " Hz\n";
     }
     error = Pa_StartStream(stream);
+    const auto started_at = std::chrono::steady_clock::now();
     if (error == paNoError) {
         Pa_Sleep(seconds * 1000);
         error = Pa_StopStream(stream);
     }
+    const double wall_seconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - started_at).count();
     const PaError close_error = Pa_CloseStream(stream);
     if (error != paNoError || close_error != paNoError) {
         throw std::runtime_error(Pa_GetErrorText(error != paNoError ? error : close_error));
     }
+    const double observed_rate = wall_seconds > 0 ? stats.total_frames / wall_seconds : 0.0;
     std::cout << "Callbacks=" << stats.callbacks
+              << ", frames=" << stats.total_frames
+              << ", wall seconds=" << wall_seconds
+              << ", observed callback frames/s=" << observed_rate
               << ", underflows=" << stats.underflows
               << ", timestamp regressions=" << stats.timestamp_regressions << '\n';
     if (stats.timestamp_regressions != 0) {
@@ -170,6 +181,8 @@ void probe(int index, bool exclusive, int channels, int sample_rate,
                   << ", " << stats.maximum_dac_lead << "] s\n";
     }
     std::cout << "These are PortAudio timestamps, not a measurement of physical DAC timing.\n";
+    if (seconds >= 3 && std::fabs(observed_rate / sample_rate - 1.0) > 0.05)
+        throw std::runtime_error("callback frame rate differs from the reported sample rate by more than 5%");
 }
 
 } // namespace

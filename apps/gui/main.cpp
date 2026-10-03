@@ -11,6 +11,8 @@ int runMediaGui(QApplication& app);
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
+    app.setApplicationName(QStringLiteral("ROOD"));
+    app.setApplicationVersion(QString::fromLatin1(ROOD_APP_VERSION));
 #ifdef ROOD_GUI_HAS_MEDIA
     return runMediaGui(app);
 #else
