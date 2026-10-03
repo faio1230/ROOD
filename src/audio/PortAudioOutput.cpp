@@ -294,6 +294,7 @@ public:
         result.renderedFrames = renderedFrames_.load();
         result.rejectedFrames = timeline_.rejectedFrames();
         result.playheadFrames = timeline_.playhead();
+        result.streamStarted = started_.load();
         result.streamActive = started_.load() && Pa_IsStreamActive(stream_.get()) == 1;
         result.driftCorrectionPpm = driftPpm_.load();
         result.driftErrorMs = driftErrorMs_.load();

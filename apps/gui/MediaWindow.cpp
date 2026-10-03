@@ -1,6 +1,6 @@
 #include "rood/MediaReceiver.hpp"
 #include "rood/OmtOutput.hpp"
-#include "rood/PortAudioOutput.hpp"
+#include "rood/RecoveringAudioOutput.hpp"
 #include "rood/SpoutVideoOutput.hpp"
 
 #include <QApplication>
@@ -49,7 +49,7 @@ struct SessionSnapshot {
     std::string error;
     std::vector<std::string> tracks;
     rood::ConnectionStats connection;
-    rood::AudioOutputStats audio;
+    rood::RecoveringAudioOutputStats audio;
     rood::SpoutVideoStats spout;
     rood::OmtOutputStats omt;
     std::uint64_t videoFrames = 0;
@@ -78,11 +78,11 @@ public:
         running_.store(true);
         try { worker_ = std::thread([this, config = std::move(config)]() mutable {
             try {
-                std::unique_ptr<rood::PortAudioOutput> audio;
+                std::unique_ptr<rood::RecoveringAudioOutput> audio;
                 std::unique_ptr<rood::SpoutVideoOutput> spout;
                 std::unique_ptr<rood::OmtOutput> omt;
                 if (config.audio)
-                    audio = std::make_unique<rood::PortAudioOutput>(std::move(*config.audio));
+                    audio = std::make_unique<rood::RecoveringAudioOutput>(std::move(*config.audio));
                 if (config.spout) {
                     rood::SpoutVideoOutput::AudioMediaClock clock;
                     if (audio) {
@@ -139,7 +139,7 @@ public:
         snapshot_.state = state;
         if (state == "connected") {
             snapshot_.tracks.clear();
-            audioFailed_ = spoutFailed_ = omtFailed_ = false;
+            spoutFailed_ = omtFailed_ = false;
         }
     }
 
@@ -157,9 +157,9 @@ public:
     }
 
     void onFrame(const rood::FrameInfo& info, const AVFrame& frame) override {
-        if (audio_ && !audioFailed_ && info.kind == "audio") {
+        if (audio_ && info.kind == "audio") {
             try { audio_->pushFrame(info, frame); }
-            catch (const std::exception& error) { audioFailed_ = true; onError(error.what()); }
+            catch (const std::exception& error) { onError(error.what()); }
         }
         if (spout_ && !spoutFailed_ && info.kind == "video") {
             try { spout_->pushFrame(info, frame); }
@@ -175,7 +175,7 @@ public:
     }
 
     void onStats(const rood::ConnectionStats& connection) override {
-        const auto audio = audio_ ? audio_->stats() : rood::AudioOutputStats{};
+        const auto audio = audio_ ? audio_->stats() : rood::RecoveringAudioOutputStats{};
         const auto spout = spout_ ? spout_->stats() : rood::SpoutVideoStats{};
         const auto omt = omt_ ? omt_->stats() : rood::OmtOutputStats{};
         std::lock_guard<std::mutex> lock(mutex_);
@@ -185,6 +185,7 @@ public:
         snapshot_.omt = omt;
         snapshot_.hasConnectionStats = true;
         if (!spout.lastError.empty()) snapshot_.error = spout.lastError;
+        if (!audio.lastError.empty()) snapshot_.error = audio.lastError;
     }
 
     void onError(const std::string& error) override {
@@ -198,10 +199,9 @@ private:
     std::atomic_bool stopRequested_{false};
     std::atomic_bool running_{false};
     std::thread worker_;
-    rood::PortAudioOutput* audio_ = nullptr;
+    rood::RecoveringAudioOutput* audio_ = nullptr;
     rood::SpoutVideoOutput* spout_ = nullptr;
     rood::OmtOutput* omt_ = nullptr;
-    bool audioFailed_ = false;
     bool spoutFailed_ = false;
     bool omtFailed_ = false;
 };
@@ -434,7 +434,7 @@ private:
         const auto snapshot = session_.snapshot();
         QString text = QStringLiteral("状態: %1\n").arg(QString::fromStdString(snapshot.state));
         if (!snapshot.error.empty())
-            text += QStringLiteral("エラー: %1\n").arg(QString::fromStdString(snapshot.error));
+            text += QStringLiteral("直近エラー: %1\n").arg(QString::fromStdString(snapshot.error));
         text += QStringLiteral("\n受信フレーム  映像: %1  音声: %2\n")
             .arg(snapshot.videoFrames).arg(snapshot.audioFrames);
         if (snapshot.hasConnectionStats) {
@@ -451,7 +451,8 @@ private:
         if (snapshot.hasAudio)
             text += QStringLiteral("\n音声出力  callback %1  再生フレーム %2\n"
                                    "underflow %3  破棄 %4  稼働 %5\n"
-                                   "クロック補正 %6 ppm  誤差 %7 ms  安定 %8\n")
+                                   "クロック補正 %6 ppm  誤差 %7 ms  安定 %8\n"
+                                   "デバイス %9  再試行 %10  復帰 %11\n")
                 .arg(snapshot.audio.callbackCount)
                 .arg(snapshot.audio.renderedFrames)
                 .arg(snapshot.audio.deviceUnderflows)
@@ -459,7 +460,10 @@ private:
                 .arg(snapshot.audio.streamActive ? QStringLiteral("はい") : QStringLiteral("いいえ"))
                 .arg(snapshot.audio.driftCorrectionPpm, 0, 'f', 1)
                 .arg(snapshot.audio.driftErrorMs, 0, 'f', 2)
-                .arg(snapshot.audio.driftLocked ? QStringLiteral("はい") : QStringLiteral("いいえ"));
+                .arg(snapshot.audio.driftLocked ? QStringLiteral("はい") : QStringLiteral("いいえ"))
+                .arg(snapshot.audio.deviceAvailable ? QStringLiteral("利用可能") : QStringLiteral("待機中"))
+                .arg(snapshot.audio.reopenAttempts)
+                .arg(snapshot.audio.recoveries);
         if (snapshot.hasSpout)
             text += QStringLiteral("\nSpout  受信 %1  送信 %2  破棄 %3  失敗 %4\n")
                 .arg(snapshot.spout.receivedFrames)

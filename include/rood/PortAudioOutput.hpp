@@ -31,6 +31,7 @@ struct AudioOutputStats {
     std::uint64_t renderedFrames = 0;
     std::uint64_t rejectedFrames = 0;
     std::int64_t playheadFrames = 0;
+    bool streamStarted = false;
     bool streamActive = false;
     double driftCorrectionPpm = 0.0;
     double driftErrorMs = 0.0;

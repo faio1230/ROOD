@@ -1,6 +1,6 @@
 #include "rood/MediaReceiver.hpp"
 #ifdef ROOD_HAS_AUDIO_OUTPUT
-#include "rood/PortAudioOutput.hpp"
+#include "rood/RecoveringAudioOutput.hpp"
 #endif
 #ifdef ROOD_HAS_SPOUT_OUTPUT
 #include "rood/SpoutVideoOutput.hpp"
@@ -93,7 +93,6 @@ public:
         }
 #endif
 #ifdef ROOD_HAS_AUDIO_OUTPUT
-        if (state == "connected") audioFailed = false;
         if (audioOutput && state == "disconnected") {
             const auto summary = audioOutput->stats();
             std::cout << "audio callbacks=" << summary.callbackCount
@@ -101,7 +100,8 @@ public:
                       << " timestampRegressions=" << summary.timestampRegressions
                       << " silentFrames=" << summary.silentFrames
                       << " renderedFrames=" << summary.renderedFrames
-                      << " rejectedFrames=" << summary.rejectedFrames << std::endl;
+                      << " rejectedFrames=" << summary.rejectedFrames
+                      << " recoveries=" << summary.recoveries << std::endl;
             audioOutput->reset();
         }
 #endif
@@ -149,13 +149,11 @@ public:
         }
 #endif
 #ifdef ROOD_HAS_AUDIO_OUTPUT
-        if (audioOutput && !audioFailed && info.kind == "audio") {
+        if (audioOutput && info.kind == "audio") {
             try {
                 audioOutput->pushFrame(info, frame);
             } catch (const std::exception& error) {
                 onError(std::string("audio output: ") + error.what());
-                audioFailed = true;
-                audioOutput->reset();
             }
         }
 #endif
@@ -216,7 +214,12 @@ public:
                       << " streamActive=" << audio.streamActive
                       << " driftLocked=" << audio.driftLocked
                       << " driftPpm=" << audio.driftCorrectionPpm
-                      << " driftErrorMs=" << audio.driftErrorMs << std::endl;
+                      << " driftErrorMs=" << audio.driftErrorMs
+                      << " deviceAvailable=" << audio.deviceAvailable
+                      << " reopenAttempts=" << audio.reopenAttempts
+                      << " recoveries=" << audio.recoveries << std::endl;
+            if (!audio.lastError.empty())
+                std::cout << "audioRecoveryError=" << audio.lastError << std::endl;
         }
 #endif
     }
@@ -229,8 +232,7 @@ public:
     int videoFrames = 0;
     std::map<int, int> frameCounts;
 #ifdef ROOD_HAS_AUDIO_OUTPUT
-    std::unique_ptr<rood::PortAudioOutput> audioOutput;
-    bool audioFailed = false;
+    std::unique_ptr<rood::RecoveringAudioOutput> audioOutput;
 #endif
 #ifdef ROOD_HAS_SPOUT_OUTPUT
     std::unique_ptr<rood::SpoutVideoOutput> spoutOutput;
@@ -362,8 +364,8 @@ int main(int argc, char** argv) {
 #ifdef ROOD_HAS_AUDIO_OUTPUT
         if (audioOptionsSpecified && !audioRequested)
             throw std::invalid_argument("audio options require --audio-device");
-        std::unique_ptr<rood::PortAudioOutput> audioOutput;
-        if (audioRequested) audioOutput = std::make_unique<rood::PortAudioOutput>(std::move(audioConfig));
+        std::unique_ptr<rood::RecoveringAudioOutput> audioOutput;
+        if (audioRequested) audioOutput = std::make_unique<rood::RecoveringAudioOutput>(std::move(audioConfig));
 #endif
         ConsoleObserver observer;
 #ifdef ROOD_HAS_AUDIO_OUTPUT

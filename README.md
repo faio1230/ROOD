@@ -8,7 +8,7 @@ ROODは、SRTの受信・分配・接続状況の監視に特化したWindowsア
 - Qt 6 Widgetsの画面から、SRT待受、音声デバイスとチャンネル経路、Spout2／OMT出力を設定して受信開始・停止できます。接続状態、検出トラック、SRT統計、出力統計を表示します。
 - PortAudio開発ファイルが見つかる環境では、デバイス列挙、WASAPI共有／排他の形式確認、無音出力時のタイムスタンプ確認ができます。
 - 開発用CLI `rood_ingest` がSRT listenerでMPEG-TSを受信し、FFmpegで映像と複数音声トラックを分離・デコードします。ストリームID、チャンネル構成、PTS、受信統計を表示し、切断後は再び待ち受けます。
-- `rood_ingest` に音声デバイスを指定すると、各トラックのチャンネルを任意の出力チャンネルへ割り当て、必要なサンプルレート変換を行ってPortAudioのWASAPI／ASIOデバイスへ出力できます。出力遅延をミリ秒で指定できます。
+- `rood_ingest` に音声デバイスを指定すると、各トラックのチャンネルを任意の出力チャンネルへ割り当て、必要なサンプルレート変換を行ってPortAudioのWASAPI／ASIOデバイスへ出力できます。出力遅延をミリ秒で指定できます。デバイスが使えなくなった場合は同じ名前とホストAPIを再列挙し、1秒間隔で開き直します。
 - `rood_ingest` にSpout名を指定すると、デコード映像をSpout2へ出力できます。音声デバイスを同時指定した場合は、音声コールバックの推定メディア時刻に映像を合わせます。
 - `rood_ingest` にOMT名を指定すると、映像と、複数トラックから最大32チャンネルへルーティングした音声をOMTへ出力できます。双方の元PTSをOMTタイムスタンプへ渡します。
 
@@ -62,11 +62,14 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 ./scripts/test-srt-loopback.ps1 -AudioDevice 12 -WasapiExclusive
 ./scripts/test-srt-loopback.ps1 -AudioDevice 12 -SpoutName ROOD-Loopback
 ./scripts/test-srt-loopback.ps1 -AudioDevice 12 -SpoutName ROOD-Loopback -OmtName ROOD-Loopback
+./scripts/test-audio-recovery.ps1
 ```
 
 デコードスレッドはチャンネルを時刻付きの有界リングバッファに配置し、PortAudioコールバックは用意済みのfloat32 PCMを読むだけです。キュー競合、入力不足、未着トラックは無音になります。診断出力の `renderedFrames` はコールバックがメディアの入ったフレーム位置を読んだ数で、実際の物理出力を測定した値ではありません。
 
 長時間のクロック差補正では、音声キューの先行量を開始後5秒で基準化し、その後の変化から最大±500 ppmの緩やかなリサンプル補正を行います。GUIとCLIに補正量を表示します。1時間以上の実機試験と物理出力の時差測定は未実施です。
+
+`test-audio-recovery.ps1` は仮想WASAPIデバイスを8秒間排他占有し、ROODが初期の開設失敗から同じSRT接続中に復帰して音声を再生するか確認します。稼働中の機器を物理的に切断する試験は別途必要です。
 
 Spout出力のみを試す場合は `./scripts/run-ingest-msvc.cmd --port 9000 --spout ROOD` を使います。`--video-delay`、`--video-offset`、`--video-late-drop` はミリ秒単位です。音声デバイスを同時指定すると音声コールバックの推定メディア時刻を映像の基準に使います。デコードスレッドがRGBAに変換して有界キューへ入れ、別スレッドが表示時刻に合わせて送信します。`-SpoutName` 付きループバックでは別プロセスのSpout受信器が画像画素を取得したことまで確認します。
 

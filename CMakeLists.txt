@@ -67,7 +67,9 @@ if(ROOD_BUILD_AUDIO_OUTPUT)
     if(WIN32)
         find_path(PORTAUDIO_WASAPI_INCLUDE_DIR pa_win_wasapi.h HINTS "${PORTAUDIO_INCLUDE_DIR}" REQUIRED)
     endif()
-    add_library(rood_audio STATIC src/audio/PortAudioOutput.cpp)
+    add_library(rood_audio STATIC
+        src/audio/PortAudioOutput.cpp
+        src/audio/RecoveringAudioOutput.cpp)
     target_include_directories(rood_audio PUBLIC include PRIVATE
         "${PORTAUDIO_INCLUDE_DIR}" "${PORTAUDIO_WASAPI_INCLUDE_DIR}")
     target_link_libraries(rood_audio PUBLIC rood_engine rood_media
