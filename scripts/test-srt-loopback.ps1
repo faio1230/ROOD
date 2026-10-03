@@ -1,6 +1,8 @@
 param(
     [string]$FfmpegPath = 'C:\Program Files\ffmpeg\bin\ffmpeg.exe',
     [int]$AudioDevice = -1,
+    [string]$AudioDeviceId = '',
+    [switch]$ExpectAudioUnavailable,
     [switch]$WasapiExclusive,
     [string]$ReceiverExe = '',
     [string]$PortAudioBin = '',
@@ -64,6 +66,9 @@ if ($AudioDelayMs -lt 0 -or $AudioDelayMs -gt 3000 -or
     $SrtLatencyMs -lt 20 -or $SrtLatencyMs -gt 8000) {
     throw 'AudioDelayMs, VideoDelayMs or SrtLatencyMs is outside the supported range.'
 }
+if ($ExpectAudioUnavailable -and -not $AudioDeviceId) {
+    throw 'ExpectAudioUnavailable requires AudioDeviceId.'
+}
 
 $logDir = Join-Path $repo "build/tests/$LogName"
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
@@ -76,8 +81,10 @@ if ($AsioOnly) { $env:ROOD_ASIO_ONLY = $AsioOnly }
 $receiverArgs = @('--port', "$port", '--latency', "$SrtLatencyMs",
                   '--seconds', "$ReceiverSeconds", '--require-media')
 if ($SrtBufferKiB -gt 0) { $receiverArgs += @('--srt-buffer-kib', "$SrtBufferKiB") }
-if ($AudioDevice -ge 0) {
-    $receiverArgs += @('--audio-device', "$AudioDevice", '--audio-channels', "$AudioChannels",
+if ($AudioDevice -ge 0 -or $AudioDeviceId) {
+    if ($AudioDevice -ge 0) { $receiverArgs += @('--audio-device', "$AudioDevice") }
+    if ($AudioDeviceId) { $receiverArgs += @('--audio-device-id', $AudioDeviceId) }
+    $receiverArgs += @('--audio-channels', "$AudioChannels",
                        '--audio-rate', "$AudioRate", '--audio-delay', "$AudioDelayMs")
     foreach ($route in $Routes) { $receiverArgs += @('--route', $route) }
     if ($WasapiExclusive) { $receiverArgs += '--wasapi-exclusive' }
@@ -208,14 +215,14 @@ try {
         $output -notmatch 'summary audioTracks=3 videoTracks=2 audioFrames=[1-9]\d* videoFrames=[1-9]\d*') {
         throw "Loopback output did not contain the expected tracks, PTS and frames. See $stdout"
     }
-    if ($AudioDevice -ge 0 -and
+    if (($AudioDevice -ge 0 -or $AudioDeviceId) -and -not $ExpectAudioUnavailable -and
         ($output -notmatch 'audio callbacks=[1-9]\d*' -or
          $output -notmatch 'renderedFrames=[1-9]\d*' -or
          ((Test-Path -LiteralPath $stderr) -and
           ((Get-Content -LiteralPath $stderr -Raw) -match 'error audio output:')))) {
         throw "Audio output did not render decoded media. See $stdout and $stderr"
     }
-    if ($AudioDevice -ge 0) {
+    if (($AudioDevice -ge 0 -or $AudioDeviceId) -and -not $ExpectAudioUnavailable) {
         $secondConnection = $output.LastIndexOf('state connected')
         $before = [regex]::Matches($output.Substring(0, $secondConnection), 'renderedFrames=(\d+)')
         $after = [regex]::Matches($output.Substring($secondConnection), 'renderedFrames=(\d+)')
@@ -245,6 +252,12 @@ try {
                 throw "First-connection audio clock or media continuity failed. See $stdout"
             }
         }
+    }
+    if ($ExpectAudioUnavailable -and
+        ($output -notmatch 'deviceAvailable=0' -or
+         $output -notmatch 'reopenAttempts=(?:[2-9]|[1-9]\d+)\b' -or
+         $output -match 'renderedFrames=[1-9]\d*')) {
+        throw "Audio was not held in a retrying unavailable state. See $stdout"
     }
     if ($SpoutName -and
         ($output -notmatch 'spout received=[1-9]\d* sent=[1-9]\d*' -or

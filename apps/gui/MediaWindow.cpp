@@ -414,8 +414,15 @@ public:
 
 private:
     void refreshDevices() {
+        std::optional<rood::AudioDeviceInfo> previous;
+        const int oldChoice = device_->currentData().toInt();
+        if (oldChoice >= 0 &&
+            oldChoice < static_cast<int>(deviceChoices_.size()))
+            previous = deviceChoices_[static_cast<std::size_t>(oldChoice)];
+        deviceChoices_.clear();
         device_->clear();
         device_->addItem(QStringLiteral("デバイスを選択"), -1);
+        int selectedChoice = -1;
         try {
             for (const auto& device : rood::listAudioOutputDevices()) {
                 const QString label = QStringLiteral("%1  |  %2  |  %3 ch  |  %4")
@@ -423,12 +430,24 @@ private:
                     .arg(QString::fromStdString(device.hostApi))
                     .arg(device.maxOutputChannels)
                     .arg(QString::fromStdString(device.name));
-                device_->addItem(label, device.index);
+                const int choice = static_cast<int>(deviceChoices_.size());
+                deviceChoices_.push_back(device);
+                device_->addItem(label, choice);
+                if (previous && device.identifier == previous->identifier)
+                    selectedChoice = choice;
             }
         } catch (const std::exception& error) {
             QMessageBox::warning(this, QStringLiteral("音声デバイス"),
                 QString::fromStdString(error.what()));
         }
+        if (previous && selectedChoice < 0) {
+            selectedChoice = static_cast<int>(deviceChoices_.size());
+            deviceChoices_.push_back(*previous);
+            device_->addItem(QStringLiteral("待機中  |  %1  |  %2")
+                .arg(QString::fromStdString(previous->hostApi))
+                .arg(QString::fromStdString(previous->name)), selectedChoice);
+        }
+        if (selectedChoice >= 0) device_->setCurrentIndex(selectedChoice + 1);
     }
 
     void start() {
@@ -442,9 +461,14 @@ private:
             config.receive.srtReceiveBufferBytes = bufferKiB * 1024;
             if (audioEnabled_->isChecked()) {
                 rood::AudioOutputConfig audio;
-                audio.deviceIndex = device_->currentData().toInt();
-                if (audio.deviceIndex < 0)
+                const int choice = device_->currentData().toInt();
+                if (choice < 0 || choice >= static_cast<int>(deviceChoices_.size()))
                     throw std::invalid_argument("音声出力デバイスを選択してください");
+                const auto& selected = deviceChoices_[static_cast<std::size_t>(choice)];
+                audio.deviceIndex = selected.index;
+                audio.deviceName = selected.name;
+                audio.deviceHostApi = selected.hostApi;
+                audio.deviceIdentifier = selected.identifier;
                 audio.channels = static_cast<std::uint32_t>(audioChannels_->value());
                 audio.sampleRate = audioRate_->value();
                 audio.outputDelayMs = audioDelay_->value();
@@ -552,6 +576,7 @@ private:
     QSpinBox* receiveBufferKiB_ = nullptr;
     QCheckBox* audioEnabled_ = nullptr;
     QComboBox* device_ = nullptr;
+    std::vector<rood::AudioDeviceInfo> deviceChoices_;
     QSpinBox* audioChannels_ = nullptr;
     QSpinBox* audioRate_ = nullptr;
     QSpinBox* audioDelay_ = nullptr;

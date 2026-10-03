@@ -22,16 +22,22 @@ using Clock = std::chrono::steady_clock;
 class RecoveringAudioOutput::Impl {
 public:
     explicit Impl(AudioOutputConfig config) : config_(std::move(config)) {
-        if (config_.deviceIndex < 0 || config_.routes.empty())
+        if ((config_.deviceIndex < 0 && config_.deviceIdentifier.empty()) ||
+            config_.routes.empty())
             throw std::invalid_argument("invalid recovering audio output configuration");
         for (const auto& route : config_.routes) mappedTracks_.insert(route.track_id);
         const auto devices = listAudioOutputDevices();
         const auto selected = std::find_if(devices.begin(), devices.end(),
-            [this](const AudioDeviceInfo& device) { return device.index == config_.deviceIndex; });
-        if (selected == devices.end())
+            [this](const AudioDeviceInfo& device) {
+                return config_.deviceIdentifier.empty()
+                    ? device.index == config_.deviceIndex
+                    : device.identifier == config_.deviceIdentifier;
+            });
+        if (selected == devices.end() && config_.deviceIdentifier.empty())
             throw std::invalid_argument("selected audio device was not found");
         if (config_.channels == 0 ||
-            config_.channels > static_cast<std::uint32_t>(selected->maxOutputChannels) ||
+            (selected != devices.end() &&
+             config_.channels > static_cast<std::uint32_t>(selected->maxOutputChannels)) ||
             config_.sampleRate < 8000 || config_.sampleRate > 384000 ||
             config_.outputDelayMs < 0 || config_.outputDelayMs > 3000)
             throw std::invalid_argument("audio output format is not supported by the selected device");
@@ -39,8 +45,10 @@ public:
             if (route.device_channel >= config_.channels || !std::isfinite(route.gain))
                 throw std::invalid_argument("invalid audio route");
         }
-        deviceName_ = selected->name;
-        hostApi_ = selected->hostApi;
+        deviceName_ = selected == devices.end() ? config_.deviceName : selected->name;
+        hostApi_ = selected == devices.end() ? config_.deviceHostApi : selected->hostApi;
+        deviceIdentifier_ = selected == devices.end()
+            ? config_.deviceIdentifier : selected->identifier;
         tryOpen();
     }
 
@@ -113,7 +121,10 @@ private:
             const auto devices = listAudioOutputDevices();
             const auto found = std::find_if(devices.begin(), devices.end(),
                 [this](const AudioDeviceInfo& device) {
-                    return device.name == deviceName_ && device.hostApi == hostApi_ &&
+                    const bool sameDevice = deviceIdentifier_.empty()
+                        ? device.name == deviceName_ && device.hostApi == hostApi_
+                        : device.identifier == deviceIdentifier_;
+                    return sameDevice &&
                            device.maxOutputChannels >= static_cast<int>(config_.channels);
                 });
             if (found == devices.end())
@@ -147,6 +158,7 @@ private:
     AudioOutputConfig config_;
     std::string deviceName_;
     std::string hostApi_;
+    std::string deviceIdentifier_;
     std::set<std::uint32_t> mappedTracks_;
     std::shared_ptr<PortAudioOutput> output_;
     Clock::time_point nextAttempt_ = Clock::now();

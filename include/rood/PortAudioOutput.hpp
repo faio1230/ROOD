@@ -16,6 +16,9 @@ struct FrameInfo;
 
 struct AudioOutputConfig {
     int deviceIndex = -1;
+    std::string deviceName;
+    std::string deviceHostApi;
+    std::string deviceIdentifier;
     int sampleRate = 48000;
     std::uint32_t channels = 2;
     int outputDelayMs = 250;
@@ -45,6 +48,7 @@ struct AudioDeviceInfo {
     int index = -1;
     std::string name;
     std::string hostApi;
+    std::string identifier;
     int maxOutputChannels = 0;
     double defaultSampleRate = 0.0;
 };

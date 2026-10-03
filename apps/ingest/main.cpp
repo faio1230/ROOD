@@ -261,6 +261,7 @@ int main(int argc, char** argv) {
         rood::AudioOutputConfig audioConfig;
         bool audioRequested = false;
         bool audioOptionsSpecified = false;
+        bool listAudioDevices = false;
 #endif
 #ifdef ROOD_HAS_SPOUT_OUTPUT
         rood::SpoutVideoConfig spoutConfig;
@@ -285,8 +286,15 @@ int main(int argc, char** argv) {
             else if (argument == "--require-media")
                 requireMedia = true;
 #ifdef ROOD_HAS_AUDIO_OUTPUT
-            else if (argument == "--audio-device" && i + 1 < argc) {
+            else if (argument == "--list-audio-devices") {
+                listAudioDevices = true;
+            } else if (argument == "--audio-device" && i + 1 < argc) {
                 audioConfig.deviceIndex = readNumber(argv[++i], 0, 10000);
+                audioRequested = true;
+            } else if (argument == "--audio-device-id" && i + 1 < argc) {
+                audioConfig.deviceIdentifier = argv[++i];
+                if (audioConfig.deviceIdentifier.empty())
+                    throw std::invalid_argument("audio device ID must not be empty");
                 audioRequested = true;
             } else if (argument == "--audio-channels" && i + 1 < argc) {
                 audioConfig.channels = readNumber(argv[++i], 1, 256);
@@ -342,7 +350,9 @@ int main(int argc, char** argv) {
                 std::cerr << "usage: rood_ingest [--port N] [--latency MS] [--srt-buffer-kib N]"
                              " [--seconds N] [--require-media]"
 #ifdef ROOD_HAS_AUDIO_OUTPUT
-                             " [--audio-device INDEX --audio-channels N --audio-rate HZ"
+                             " [--list-audio-devices]"
+                             " [--audio-device INDEX | --audio-device-id ID]"
+                             " [--audio-channels N --audio-rate HZ"
                              " --audio-delay MS --route TRACK:SOURCE:OUTPUT[:GAIN]"
                              " [--route ...] [--wasapi-exclusive]]"
 #endif
@@ -358,6 +368,18 @@ int main(int argc, char** argv) {
                 return 2;
             }
         }
+#ifdef ROOD_HAS_AUDIO_OUTPUT
+        if (listAudioDevices) {
+            for (const auto& device : rood::listAudioOutputDevices())
+                std::cout << "index=" << device.index
+                          << " hostApi=" << device.hostApi
+                          << " channels=" << device.maxOutputChannels
+                          << " rate=" << device.defaultSampleRate
+                          << " id=" << device.identifier
+                          << " name=" << device.name << '\n';
+            return 0;
+        }
+#endif
         std::signal(SIGINT, onSignal);
 #ifdef ROOD_HAS_SPOUT_OUTPUT
         if (videoOptionsSpecified && !spoutRequested)
@@ -371,7 +393,7 @@ int main(int argc, char** argv) {
 #endif
 #ifdef ROOD_HAS_AUDIO_OUTPUT
         if (audioOptionsSpecified && !audioRequested)
-            throw std::invalid_argument("audio options require --audio-device");
+            throw std::invalid_argument("audio options require --audio-device or --audio-device-id");
         std::unique_ptr<rood::RecoveringAudioOutput> audioOutput;
         if (audioRequested) audioOutput = std::make_unique<rood::RecoveringAudioOutput>(std::move(audioConfig));
 #endif

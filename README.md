@@ -58,10 +58,12 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 ./scripts/run-ingest-msvc.cmd --port 9000 --latency 120 --srt-buffer-kib 1024
 ```
 
-音声デバイスへの出力例。デバイス番号は `./scripts/list-audio-devices-msvc.cmd` で確認します。以下のトラックIDはループバック用MPEG-TSの例です。`--route` は `トラックID:入力チャンネル:出力チャンネル[:ゲイン]` で、チャンネル番号は0始まりです。`--wasapi-exclusive` を加えるとWASAPI排他モードになります。
+音声デバイスへの出力例。デバイス番号は `./scripts/list-audio-devices-msvc.cmd`、再接続時にも使うIDは `./scripts/run-ingest-msvc.cmd --list-audio-devices` で確認します。`--audio-device-id` を指定すると、番号が変わっても同じWASAPIエンドポイントを探します。出力先が一時的に見えない場合もSRT受信を続け、1秒間隔で再試行します。GUIの「更新」は選択済みの出力先を保持します。以下のトラックIDはループバック用MPEG-TSの例です。`--route` は `トラックID:入力チャンネル:出力チャンネル[:ゲイン]` で、チャンネル番号は0始まりです。`--wasapi-exclusive` を加えるとWASAPI排他モードになります。
 
 ```powershell
 ./scripts/run-ingest-msvc.cmd --port 9000 --audio-device 12 --audio-channels 2 --audio-rate 48000 --audio-delay 250 --route 257:0:0 --route 257:1:1 --route 258:5:1:0.5
+./scripts/run-ingest-msvc.cmd --list-audio-devices
+./scripts/run-ingest-msvc.cmd --port 9000 --audio-device-id '<列挙結果のID>' --route 257:0:0 --route 257:1:1
 ./scripts/test-srt-loopback.ps1 -AudioDevice 12
 ./scripts/test-srt-loopback.ps1 -AudioDevice 12 -WasapiExclusive
 ./scripts/test-srt-loopback.ps1 -AudioDevice 12 -SpoutName ROOD-Loopback

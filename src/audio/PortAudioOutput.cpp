@@ -6,7 +6,12 @@
 
 #include <portaudio.h>
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #include <pa_win_wasapi.h>
+#include <mmdeviceapi.h>
 #endif
 
 extern "C" {
@@ -52,6 +57,30 @@ public:
     PaRuntime() { checkPa(Pa_Initialize(), "Pa_Initialize"); }
     ~PaRuntime() { Pa_Terminate(); }
 };
+
+#ifdef _WIN32
+std::string wasapiEndpointIdentifier(int index) {
+    void* rawDevice = nullptr;
+    if (PaWasapi_GetIMMDevice(index, &rawDevice) != paNoError || !rawDevice) return {};
+    LPWSTR wideId = nullptr;
+    if (FAILED(static_cast<IMMDevice*>(rawDevice)->GetId(&wideId)) || !wideId) return {};
+    const int bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+        wideId, -1, nullptr, 0, nullptr, nullptr);
+    std::string result;
+    if (bytes > 1) {
+        result.resize(static_cast<std::size_t>(bytes));
+        if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wideId, -1,
+                result.data(), bytes, nullptr, nullptr) == bytes) {
+            result.pop_back();
+            result.insert(0, "wasapi:");
+        } else {
+            result.clear();
+        }
+    }
+    CoTaskMemFree(wideId);
+    return result;
+}
+#endif
 
 class PaStreamHandle {
 public:
@@ -401,6 +430,14 @@ std::vector<AudioDeviceInfo> listAudioOutputDevices() {
         entry.index = index;
         entry.name = device->name ? device->name : "unknown";
         entry.hostApi = api && api->name ? api->name : "unknown";
+        entry.identifier = "name:" + std::to_string(entry.hostApi.size()) + ':' +
+                           entry.hostApi + entry.name;
+#ifdef _WIN32
+        if (api && api->type == paWASAPI) {
+            auto endpointId = wasapiEndpointIdentifier(index);
+            if (!endpointId.empty()) entry.identifier = std::move(endpointId);
+        }
+#endif
         entry.maxOutputChannels = device->maxOutputChannels;
         entry.defaultSampleRate = device->defaultSampleRate;
         devices.push_back(std::move(entry));
