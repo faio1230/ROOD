@@ -20,6 +20,12 @@
 
 WASAPI排他モードで時刻が後退したため、`outputBufferDacTime` を無条件に連続時刻として使う設計にはしません。ASIOについても `Pa_IsFormatSupported` の結果だけでは開設可否を決められません。これらの数値はドライバ・機器・同時利用状況に依存します。無音出力が成功しても、各チャンネルの実際の行き先、物理DAC時刻、長時間ドリフトは未検証です。
 
+### 仮想ケーブル録音によるWASAPI経路の確認
+
+`scripts/test-wasapi-cable-capture.ps1` でROODのSRT受信試験を動かし、出力先の `CABLE Input (VB-Audio Virtual Cable)` と対になる `CABLE Output` を別のFFmpegプロセスで48 kHz・ステレオPCMとして録音しました。`scripts/analyze-cable-capture.py` はPython標準ライブラリだけで1秒ごとの440 Hz、330 Hz、880 Hz成分を測ります。共有と排他をそれぞれ実行し、最初の接続では440 Hzが左、5.1トラックの6番目から取った330 Hzが右に届き、再接続後は880 Hzが左に届いて右が無音であることを確認しました。両モードとも、最初の接続でPortAudio underflow 0、音声フレーム破棄0、再接続2回・切断2回です。録音ファイルと受信ログは `build/tests/wasapi-cable-{shared,exclusive}` と `build/tests/wasapi-cable-loopback-{shared,exclusive}` に保存されます。
+
+この試験はPortAudioコールバックの数値に加え、仮想デバイスの録音端までの信号とチャンネル割り当てを確認します。物理DACへの配線、実際のDAC時刻、ASIO出力や別クロックでの長時間同期は対象外です。
+
 ## 採用を確定するための検証
 
 ### SRT受信から音声出力までの短時間試験
