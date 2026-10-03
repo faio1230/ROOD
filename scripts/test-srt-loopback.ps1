@@ -17,6 +17,7 @@ param(
     [int]$OmtChannels = 2,
     [string[]]$OmtRoutes = @('257:0:0', '258:5:1'),
     [string]$OmtSignalChannels = '0,1',
+    [int]$OmtProbeSeconds = 16,
     [int]$FirstSeconds = 5,
     [int]$ReceiverSeconds = 20,
     [string]$LogName = 'srt-loopback'
@@ -43,8 +44,10 @@ if ($LogName -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$') {
     throw 'LogName must contain only letters, digits, underscores and hyphens.'
 }
 if ($OmtName -and ($OmtChannels -lt 1 -or $OmtChannels -gt 32 -or
-                   $OmtRoutes.Count -eq 0 -or -not $OmtSignalChannels)) {
-    throw 'OMT requires 1-32 channels, at least one route and signal channels.'
+                   $OmtRoutes.Count -eq 0 -or -not $OmtSignalChannels -or
+                   $OmtProbeSeconds -lt 1 -or $OmtProbeSeconds -gt 600 -or
+                   $OmtProbeSeconds -gt $ReceiverSeconds)) {
+    throw 'OMT requires 1-32 channels, a route, signal channels and a probe duration within receiver time.'
 }
 if ($SrtBufferKiB -ne 0 -and ($SrtBufferKiB -lt 64 -or $SrtBufferKiB -gt 16384)) {
     throw 'SrtBufferKiB must be 0 or 64..16384.'
@@ -139,7 +142,7 @@ try {
         $omtProbeStderr = Join-Path $logDir 'omt-probe.stderr.txt'
         Remove-Item -LiteralPath $omtProbeStdout, $omtProbeStderr -ErrorAction SilentlyContinue
         $omtProbe = Start-Process -FilePath $probeExe `
-            -ArgumentList @("`"$omtAddress`"", '16', "$OmtChannels", $OmtSignalChannels) `
+            -ArgumentList @("`"$omtAddress`"", "$OmtProbeSeconds", "$OmtChannels", $OmtSignalChannels) `
             -RedirectStandardOutput $omtProbeStdout -RedirectStandardError $omtProbeStderr `
             -WindowStyle Hidden -PassThru
     }
@@ -268,6 +271,32 @@ try {
         if ($omtProbe.ExitCode -ne 0 -or
             $omtOutput -notmatch "omtProbe video=[1-9]\d* audio=[1-9]\d* size=\d+x\d+ channels=$OmtChannels pixelSampleSum=[1-9]\d* audioSampleSum=") {
             throw "OMT receiver did not obtain video and routed audio. See $omtProbeStdout and $omtProbeStderr"
+        }
+        if ($OmtProbeSeconds -ge 60) {
+            $videoFirst = [regex]::Match($omtOutput, '(?<!\w)videoTimestamp=(\d+)')
+            $videoLast = [regex]::Match($omtOutput, '(?<!\w)videoLastTimestamp=(\d+)')
+            $audioFirst = [regex]::Match($omtOutput, '(?<!\w)audioTimestamp=(\d+)')
+            $audioLast = [regex]::Match($omtOutput, '(?<!\w)audioLastTimestamp=(\d+)')
+            $videoGap = [regex]::Match($omtOutput, '(?<!\w)maxVideoTimestampGapMs=([\d.]+)')
+            $audioGap = [regex]::Match($omtOutput, '(?<!\w)maxAudioTimestampGapMs=([\d.]+)')
+            if (-not $videoFirst.Success -or -not $videoLast.Success -or
+                -not $audioFirst.Success -or -not $audioLast.Success -or
+                -not $videoGap.Success -or -not $audioGap.Success) {
+                throw "OMT timing statistics are missing. See $omtProbeStdout"
+            }
+            $videoSpan = ([long]$videoLast.Groups[1].Value -
+                          [long]$videoFirst.Groups[1].Value) / 10000000.0
+            $audioSpan = ([long]$audioLast.Groups[1].Value -
+                          [long]$audioFirst.Groups[1].Value) / 10000000.0
+            $maxVideoGap = [double]::Parse($videoGap.Groups[1].Value,
+                                          [Globalization.CultureInfo]::InvariantCulture)
+            $maxAudioGap = [double]::Parse($audioGap.Groups[1].Value,
+                                          [Globalization.CultureInfo]::InvariantCulture)
+            if ($videoSpan -lt ($OmtProbeSeconds - 5) -or
+                $audioSpan -lt ($OmtProbeSeconds - 5) -or
+                $maxVideoGap -gt 100 -or $maxAudioGap -gt 60) {
+                throw "OMT long-running media timestamps have gaps. See $omtProbeStdout"
+            }
         }
     }
     Write-Host 'SRT loopback passed: video, stereo and 5.1 audio, PTS, disconnect and reconnect.'

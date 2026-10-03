@@ -8,7 +8,7 @@ ROODは、SRTの受信・分配・接続状況の監視に特化したWindowsア
 - Qt 6 Widgetsの画面から、SRT待受と受信バッファ容量、音声デバイスとチャンネル経路、Spout2／OMT出力を設定して受信開始・停止できます。接続状態と直近50件の履歴、検出トラック、SRT統計、出力統計を表示します。
 - PortAudio開発ファイルが見つかる環境では、デバイス列挙、WASAPI共有／排他の形式確認、無音出力時のタイムスタンプ確認ができます。
 - 開発用CLI `rood_ingest` がSRT listenerでMPEG-TSを受信し、FFmpegで映像と複数音声トラックを分離・デコードします。ストリームID、チャンネル構成、PTS、受信統計を表示し、切断後は再び待ち受けます。
-- `rood_ingest` に音声デバイスを指定すると、各トラックのチャンネルを任意の出力チャンネルへ割り当て、必要なサンプルレート変換を行ってPortAudioのWASAPI／ASIOデバイスへ出力できます。出力遅延をミリ秒で指定できます。デバイスが使えなくなった場合は同じ名前とホストAPIを再列挙し、1秒間隔で開き直します。
+- `rood_ingest` に音声デバイスを指定すると、各トラックのチャンネルを任意の出力チャンネルへ割り当て、必要なサンプルレート変換を行ってPortAudioのWASAPI／ASIOデバイスへ出力できます。出力遅延をミリ秒で指定できます。デバイスが使えなくなった場合は同じ名前とホストAPIを再列挙し、1秒間隔で開き直します。受信統計の更新時にも出力状態を確認するため、SRT接続中に音声フレームが途切れても復帰試行を続けます。
 - `rood_ingest` にSpout名を指定すると、デコード映像をSpout2へ出力できます。音声デバイスを同時指定した場合は、音声コールバックの推定メディア時刻に映像を合わせます。
 - `rood_ingest` にOMT名を指定すると、映像と、複数トラックから最大32チャンネルへルーティングした音声をOMTへ出力できます。双方の元PTSをOMTタイムスタンプへ渡します。
 
@@ -84,8 +84,11 @@ Spout出力のみを試す場合は `./scripts/run-ingest-msvc.cmd --port 9000 -
 
 OMT出力の例は `./scripts/run-ingest-msvc.cmd --port 9000 --omt ROOD --omt-channels 2 --omt-rate 48000 --omt-delay 250 --omt-route 257:0:0 --omt-route 258:5:1` です。OMT出力は映像BGRAと最大32チャンネルの平面float32音声を出します。別プロセスの受信プローブで映像画素と32チャンネル音声を受信し、ステレオトラックを0番、別の5.1トラックの6番目を31番に割り当てた信号を確認済みです。音声デバイスとOMTの時刻基準は現時点では別なので、同時出力の長時間同期は未検証です。
 
+WASAPI・Spout・32チャンネルOMTの同時出力を2分間受信した試験では、OMT受信器の映像・音声タイムスタンプに逆行はなく、最大間隔は映像40 ms、音声20 msでした。両系列のタイムスタンプ幅も118.6秒で一致しました。これはOMTのメディア時刻の連続性であり、受信画面やDACの物理出力時差を測った値ではありません。
+
 ```powershell
 ./scripts/test-srt-loopback.ps1 -OmtName ROOD-32ch -OmtChannels 32 -OmtRoutes @('257:0:0','258:5:31') -OmtSignalChannels '0,31' -LogName srt-omt-32ch
+./scripts/test-srt-loopback.ps1 -AudioDevice 11 -SpoutName ROOD-OMT-120 -OmtName ROOD-OMT-120 -OmtChannels 32 -OmtRoutes @('257:0:0','258:5:31') -OmtSignalChannels '0,31' -OmtProbeSeconds 120 -FirstSeconds 150 -ReceiverSeconds 165 -ReceiverExe (Resolve-Path ./build/msvc-media-release/rood_ingest.exe).Path -LogName srt-omt-120s
 ```
 
 別の端末からSRT callerでMPEG-TSを送ります。`--seconds 20` で自動終了、Ctrl+Cでも停止できます。任意のポートを使うループバック検証は、FFmpeg CLIがある環境で次を実行します。

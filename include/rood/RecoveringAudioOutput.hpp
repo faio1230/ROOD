@@ -31,6 +31,9 @@ public:
     RecoveringAudioOutput& operator=(const RecoveringAudioOutput&) = delete;
 
     void pushFrame(const FrameInfo& info, const AVFrame& frame);
+    // Call periodically even when no mapped audio frames arrive. Checks the
+    // active stream and retries a missing device without waiting for audio.
+    void poll();
     void reset();
     RecoveringAudioOutputStats stats() const;
     std::optional<double> playbackMediaSeconds() const noexcept;

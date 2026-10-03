@@ -272,7 +272,7 @@ public:
 
     void reset() {
         if (started_.load()) {
-            Pa_StopStream(stream_.get());
+            checkPa(Pa_StopStream(stream_.get()), "Pa_StopStream");
             started_.store(false);
             streamStartTicks_.store(0);
         }

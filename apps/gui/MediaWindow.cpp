@@ -183,6 +183,7 @@ public:
     }
 
     void onStats(const rood::ConnectionStats& connection) override {
+        if (audio_) audio_->poll();
         const auto audio = audio_ ? audio_->stats() : rood::RecoveringAudioOutputStats{};
         const auto spout = spout_ ? spout_->stats() : rood::SpoutVideoStats{};
         const auto omt = omt_ ? omt_->stats() : rood::OmtOutputStats{};

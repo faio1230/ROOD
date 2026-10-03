@@ -1,5 +1,6 @@
 #include <libomt.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -38,7 +39,7 @@ int main(int argc, char** argv) {
         std::cerr << "usage: rood_omt_probe ADDRESS [SECONDS] [CHANNELS] [SIGNAL_CHANNELS_CSV]\n";
         return 2;
     }
-    const int seconds = argc >= 3 ? parseInt(argv[2], 1, 120) : 15;
+    const int seconds = argc >= 3 ? parseInt(argv[2], 1, 600) : 15;
     const int expectedChannels = argc >= 4 ? parseInt(argv[3], 1, 32) : 2;
     if (seconds < 0 || expectedChannels < 0) return 2;
     const auto signalChannels = argc >= 5
@@ -65,6 +66,12 @@ int main(int argc, char** argv) {
     std::vector<double> signalChannelSums(signalChannels.size(), 0.0);
     std::int64_t firstVideoTimestamp = -1;
     std::int64_t firstAudioTimestamp = -1;
+    std::int64_t lastVideoTimestamp = -1;
+    std::int64_t lastAudioTimestamp = -1;
+    int videoTimestampRegressions = 0;
+    int audioTimestampRegressions = 0;
+    double maxVideoTimestampGapMs = 0.0;
+    double maxAudioTimestampGapMs = 0.0;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
     while (std::chrono::steady_clock::now() < deadline) {
         const OMTMediaFrame* frame = omt_receive(receiver, both, 200);
@@ -75,6 +82,12 @@ int main(int argc, char** argv) {
             width = frame->Width;
             height = frame->Height;
             if (firstVideoTimestamp < 0) firstVideoTimestamp = frame->Timestamp;
+            if (lastVideoTimestamp >= 0) {
+                const double gapMs = static_cast<double>(frame->Timestamp - lastVideoTimestamp) / 10000.0;
+                if (gapMs < 0) ++videoTimestampRegressions;
+                else maxVideoTimestampGapMs = std::max(maxVideoTimestampGapMs, gapMs);
+            }
+            lastVideoTimestamp = frame->Timestamp;
             const auto* pixels = static_cast<const std::uint8_t*>(frame->Data);
             for (int i = 0; i < frame->DataLength; i += 256)
                 pixelSampleSum += pixels[i];
@@ -85,6 +98,12 @@ int main(int argc, char** argv) {
             ++audioFrames;
             channels = frame->Channels;
             if (firstAudioTimestamp < 0) firstAudioTimestamp = frame->Timestamp;
+            if (lastAudioTimestamp >= 0) {
+                const double gapMs = static_cast<double>(frame->Timestamp - lastAudioTimestamp) / 10000.0;
+                if (gapMs < 0) ++audioTimestampRegressions;
+                else maxAudioTimestampGapMs = std::max(maxAudioTimestampGapMs, gapMs);
+            }
+            lastAudioTimestamp = frame->Timestamp;
             const auto* samples = static_cast<const float*>(frame->Data);
             for (int i = 0; i < frame->SamplesPerChannel; i += 16) {
                 audioSampleSum += std::fabs(samples[i]);
@@ -103,7 +122,13 @@ int main(int argc, char** argv) {
               << " audioSampleSum=" << audioSampleSum
               << " secondChannelSampleSum=" << secondChannelSampleSum
               << " videoTimestamp=" << firstVideoTimestamp
-              << " audioTimestamp=" << firstAudioTimestamp << std::endl;
+              << " audioTimestamp=" << firstAudioTimestamp
+              << " videoLastTimestamp=" << lastVideoTimestamp
+              << " audioLastTimestamp=" << lastAudioTimestamp
+              << " videoTimestampRegressions=" << videoTimestampRegressions
+              << " audioTimestampRegressions=" << audioTimestampRegressions
+              << " maxVideoTimestampGapMs=" << maxVideoTimestampGapMs
+              << " maxAudioTimestampGapMs=" << maxAudioTimestampGapMs << std::endl;
     std::cout << "omtProbe signalChannelSums=";
     bool allSignalsPresent = true;
     for (std::size_t index = 0; index < signalChannels.size(); ++index) {
@@ -114,5 +139,6 @@ int main(int argc, char** argv) {
     std::cout << std::endl;
     return videoFrames > 0 && audioFrames > 0 && channels == expectedChannels &&
            pixelSampleSum > 0 && allSignalsPresent &&
-           firstVideoTimestamp > 0 && firstAudioTimestamp > 0 ? 0 : 1;
+           firstVideoTimestamp > 0 && firstAudioTimestamp > 0 &&
+           videoTimestampRegressions == 0 && audioTimestampRegressions == 0 ? 0 : 1;
 }

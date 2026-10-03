@@ -206,6 +206,7 @@ public:
 #endif
 #ifdef ROOD_HAS_AUDIO_OUTPUT
         if (audioOutput) {
+            audioOutput->poll();
             const auto audio = audioOutput->stats();
             std::cout << "audio callbacks=" << audio.callbackCount
                       << " deviceUnderflows=" << audio.deviceUnderflows

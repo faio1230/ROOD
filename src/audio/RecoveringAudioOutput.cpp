@@ -47,24 +47,28 @@ public:
     void pushFrame(const FrameInfo& info, const AVFrame& frame) {
         if (info.kind != "audio" || info.streamId < 0 ||
             mappedTracks_.count(static_cast<std::uint32_t>(info.streamId)) == 0) return;
+        poll();
         auto output = std::atomic_load(&output_);
-        const auto now = Clock::now();
-        if (!output && now >= nextAttempt_) {
-            tryOpen();
-            output = std::atomic_load(&output_);
-        }
         if (!output) return;
         try {
             output->pushFrame(info, frame);
-            if (now >= nextHealthCheck_) {
-                nextHealthCheck_ = now + std::chrono::milliseconds(500);
-                const auto current = output->stats();
-                if (current.streamStarted && !current.streamActive)
-                    throw std::runtime_error("audio output stream stopped unexpectedly");
-            }
         } catch (const std::exception& error) {
             retire(output, error.what());
         }
+    }
+
+    void poll() {
+        const auto now = Clock::now();
+        auto output = std::atomic_load(&output_);
+        if (!output) {
+            if (now >= nextAttempt_) tryOpen();
+            return;
+        }
+        if (now < nextHealthCheck_) return;
+        nextHealthCheck_ = now + std::chrono::milliseconds(500);
+        const auto current = output->stats();
+        if (current.streamStarted && !current.streamActive)
+            retire(output, "audio output stream stopped unexpectedly");
     }
 
     void reset() {
@@ -158,6 +162,7 @@ RecoveringAudioOutput::~RecoveringAudioOutput() = default;
 void RecoveringAudioOutput::pushFrame(const FrameInfo& info, const AVFrame& frame) {
     impl_->pushFrame(info, frame);
 }
+void RecoveringAudioOutput::poll() { impl_->poll(); }
 void RecoveringAudioOutput::reset() { impl_->reset(); }
 RecoveringAudioOutputStats RecoveringAudioOutput::stats() const { return impl_->stats(); }
 std::optional<double> RecoveringAudioOutput::playbackMediaSeconds() const noexcept {
