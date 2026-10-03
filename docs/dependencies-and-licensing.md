@@ -34,18 +34,20 @@ SteinbergはASIO SDKについて[オープンソース版とプロプライエ�
 
 `windows-msvc-media-asio-test` はSDK 2.3.4を使うローカル検証用です。取得したSDKの `LICENSE.txt` はGPLv3とSteinberg独自ライセンスを選択肢として記載し、独自ライセンスでの公開にはSteinbergが署名した契約書を求めています。ASIO対応バイナリを出す場合は、GPLv3に沿う配布構成を整えるか、Steinbergとの契約を取得するかを先に決めます。どちらの場合もSDK内の各ファイルにある個別のライセンス表示を確認します。現時点でASIO検証版を配布物に転用しません。
 
-`scripts/bootstrap-qt-source.ps1` は[Qt公式のqtbase 6.10.3ソース](https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz.mirrorlist)をSHA-256 `383dc907816338f0cba72088a524c07458dfc69ce684ca9132fcc4fe91c24b0b` で確認し、ライセンス本文38件を取り出します。アーカイブの `.tag` と導入済みバイナリのSBOMには同じcommit `7ddbc87d8e14ce51d2957ea72d0a6077593d5ff4` が記録されています。`scripts/stage-windows-release.ps1` はWASAPI専用ReleaseビルドからGUI・CLI、依存DLL、Qtライセンス本文、2つのSPDX文書とソース参照情報をローカル確認用フォルダーへ集めます。FFmpegについては、vcpkgのポートが指定するSHA-512と一致する8.1.2のソースアーカイブ、14件のパッチ、ポート定義、Releaseビルド時に生成した設定ファイルも保存します。各ファイルのSHA-256とGit作業ツリーの状態を記録し、依存診断、PortAudioのASIO非列挙、SRT待受、GUI起動を開発用DLLパスなしで確認します。Qtの第三者通知と同梱DLLの照合、公開時のソース提供方法、WindowsのVCランタイムがない機械での起動は未確認です。フォルダー内の `STAGING-STATUS.txt` はこれらを公開前の不足として明記します。このローカル確認は公開可否の承認ではありません。
+`scripts/bootstrap-qt-source.ps1` は[Qt公式のqtbase 6.10.3ソース](https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz.mirrorlist)をSHA-256 `383dc907816338f0cba72088a524c07458dfc69ce684ca9132fcc4fe91c24b0b` で確認し、ライセンス本文38件を取り出します。アーカイブの `.tag` と導入済みバイナリのSBOMには同じcommit `7ddbc87d8e14ce51d2957ea72d0a6077593d5ff4` が記録されています。ただし、同梱するQtの4つのDLLはSBOM記載のSHA-1と一致しません。DLLのQt Company署名は有効ですが、これだけでは差の原因を確定できません。
+
+`scripts/stage-windows-release.ps1` はWASAPI専用ReleaseビルドからGUI・CLI、依存DLL、Qtライセンス本文、2つのSPDX文書とソース参照情報をローカル確認用フォルダーへ集めます。FFmpegはvcpkgのポートが指定するSHA-512と一致する8.1.2のソースアーカイブ、14件のパッチ、ポート定義、Releaseビルド時に生成した設定ファイルを保存します。libsrtも同様に1.5.6のソースアーカイブ、3件のパッチ、ポート定義、CMakeCacheを保存します。各ファイルのSHA-256、Qtの4つのDLLとSBOMのSHA-1比較、Git作業ツリーの状態を記録し、依存診断、PortAudioのASIO非列挙、SRT待受、GUI起動を開発用DLLパスなしで確認します。Qtの第三者通知と同梱DLLの照合、公開時のソース提供方法、WindowsのVCランタイムがない機械での起動は未確認です。フォルダー内の `STAGING-STATUS.txt` はこれらを公開前の不足として明記します。このローカル確認は公開可否の承認ではありません。
 
 | 対象 | 現在の確認結果 | 公開前に実施すること |
 | --- | --- | --- |
 | ROOD自作コード | ライセンス未決定、MITが候補 | 権利者とライセンスを決め、`LICENSE` と著作権表示を追加する |
 | Qt 6.10.3 `Core` / `Gui` / `Widgets` | 動的ライブラリでリンク。Qt 6.10はLGPLv3でのアプリ開発を案内する | 同梱するQt DLL・プラグインを列挙し、各モジュールとQt内の第三者コードの通知、利用者が互換DLLへ差し替えられる構成、対応ソースを確認する |
 | FFmpeg 8.1.2 | 実行時ライセンス表示は `LGPL version 2.1 or later`。GPL／nonfree機能なし | 配布DLLと一致するソース、vcpkgパッチ、configure/build設定を保存して提供する。ダウンロードページとアプリのAbout表示にFFmpegとソース入手先を明記する |
-| libsrt 1.5.6 | [MPL-2.0](https://github.com/Haivision/srt/blob/v1.5.6/LICENSE)、共有DLL | ライセンス・著作権表示、配布DLLと一致するライブラリソースと変更有無を整理する |
+| libsrt 1.5.6 | [MPL-2.0](https://github.com/Haivision/srt/blob/v1.5.6/LICENSE)、共有DLL | ライセンス・著作権表示、配布DLLと一致するソース・パッチ・ビルド設定を確認し、ソース入手先を利用者へ知らせる。確認用フォルダーには該当ファイルを保存済み |
 | OpenSSL 3.6.3 | libsrtが使用。vcpkgの共有DLL | ライセンス・通知文を同梱し、実際のDLLと依存関係を検査する |
 | PortAudio v19.7.0 | WASAPI版はASIO SDKなし、共有DLL | MITライセンス・著作権表示、公開ビルドと検証用ASIOビルドの混入防止を確認する |
 | Spout2 2.007.017 | BSD-2-Clause、MSVC共有DLL | ライセンス・著作権表示を同梱する |
 | OMT v1.0.0.16 | 配布ZIPにMITライセンス。`libomt` と `libvmx` を使用 | 両DLLの配布元・版・同梱ライセンスを記録し、通知文を同梱する |
 | Steinberg ASIO SDK 2.3.4 | ローカル検証用のみ | ASIO対応バイナリの公開経路を選び、SDKの各ファイルの条項と配布物を照合する |
 
-[Qt 6.10のライセンス案内](https://doc.qt.io/qt-6.10/licensing.html)はモジュールによって条件が異なること、第三者コードの通知とSBOMを確認できることを示しています。[FFmpeg公式のチェックリスト](https://ffmpeg.org/legal.html)はDLLリンクに加え、一致するソース、ビルド方法、配布ページとAbout表示への記載を求めています。公開用パッケージを作る際は、この表を実ファイル一覧と照合して更新します。
+[Qt 6.10のライセンス案内](https://doc.qt.io/qt-6.10/licensing.html)はモジュールによって条件が異なること、第三者コードの通知とSBOMを確認できることを示しています。[FFmpeg公式のチェックリスト](https://ffmpeg.org/legal.html)はDLLリンクに加え、一致するソース、ビルド方法、配布ページとAbout表示への記載を求めています。[MozillaのMPL FAQ](https://www.mozilla.org/en-US/MPL/2.0/FAQ/)は、実行形式を配布する場合に対応するソースの入手方法を利用者へ知らせるよう案内しています。公開用パッケージを作る際は、この表を実ファイル一覧と照合して更新します。

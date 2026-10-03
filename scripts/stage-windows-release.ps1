@@ -18,6 +18,10 @@ $ffmpegArchive = Join-Path $dependencies 'vcpkg-src/downloads/ffmpeg-ffmpeg-n8.1
 $ffmpegArchiveSha512 = 'c72f4062aecc16d8b2b1e8678d5efe3af4cfaa0cc7c0997052248f9e499e60c2463acf07877cf3b78b246ce3e8078cb043e8d97e90a6b50d06af32ff7369a788'
 $ffmpegPort = Join-Path $dependencies 'vcpkg-src/ports/ffmpeg'
 $ffmpegBuild = Join-Path $dependencies 'vcpkg-src/buildtrees/ffmpeg/x64-windows-rel'
+$srtArchive = Join-Path $dependencies 'vcpkg-src/downloads/Haivision-srt-v1.5.6.tar.gz'
+$srtArchiveSha512 = '57641b35644b6bfa5998648fb808b615d11d8eab52fecb628a58414dbc87b1d781ea281c8ceef42a92f0c3796a05b41b8411bea95188ce751544f8195b7dbb66'
+$srtPort = Join-Path $dependencies 'vcpkg-src/ports/libsrt'
+$srtBuild = Join-Path $dependencies 'vcpkg-src/buildtrees/libsrt/x64-windows-rel'
 $vcpkgRevision = '9e593bb18ea69cc5095e012465dcd675a822ed0d'
 $cache = Join-Path $build 'CMakeCache.txt'
 $paCache = Join-Path $dependencies 'portaudio-msvc-build/CMakeCache.txt'
@@ -64,6 +68,20 @@ if (-not $patchBlock.Success) { throw 'Could not read the FFmpeg port patch list
 $ffmpegPatches = @([regex]::Matches($patchBlock.Groups['names'].Value, '(?m)^\s*(\S+\.patch)(?:\s+#.*)?$') |
     ForEach-Object { $_.Groups[1].Value })
 if ($ffmpegPatches.Count -ne 14) { throw 'The FFmpeg port patch list has changed.' }
+if (-not (Test-Path -LiteralPath $srtArchive) -or
+    (Get-FileHash -LiteralPath $srtArchive -Algorithm SHA512).Hash.ToLowerInvariant() -ne $srtArchiveSha512) {
+    throw 'libsrt source archive is missing or does not match the pinned vcpkg port.'
+}
+$srtPortfile = Join-Path $srtPort 'portfile.cmake'
+$srtPortText = Get-Content -LiteralPath $srtPortfile -Raw
+if ($srtPortText -notmatch [regex]::Escape($srtArchiveSha512)) {
+    throw 'libsrt portfile has a different source archive hash.'
+}
+$srtPatchBlock = [regex]::Match($srtPortText, '(?ms)^\s*PATCHES\s*\r?\n(?<names>.*?)^\)')
+if (-not $srtPatchBlock.Success) { throw 'Could not read the libsrt port patch list.' }
+$srtPatches = @([regex]::Matches($srtPatchBlock.Groups['names'].Value,
+    '(?m)^\s*(\S+\.(?:patch|diff))(?:\s+#.*)?$') | ForEach-Object { $_.Groups[1].Value })
+if ($srtPatches.Count -ne 3) { throw 'The libsrt port patch list has changed.' }
 
 $stageRoot = Join-Path $repo 'build/stage'
 New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
@@ -108,12 +126,23 @@ $files = @(
     @{ Source = (Join-Path $ffmpegBuild 'ffbuild/config.sh'); Target = 'source/FFmpeg/ffbuild-config.sh'; Component = 'FFmpeg 8.1.2 build' }
     @{ Source = (Join-Path $ffmpegBuild 'ffbuild/config.mak'); Target = 'source/FFmpeg/ffbuild-config.mak'; Component = 'FFmpeg 8.1.2 build' }
     @{ Source = (Join-Path $ffmpegBuild 'config.h'); Target = 'source/FFmpeg/config.h'; Component = 'FFmpeg 8.1.2 build' }
+    @{ Source = $srtArchive; Target = 'source/libsrt/srt-v1.5.6.tar.gz'; Component = 'libsrt 1.5.6 source' }
+    @{ Source = $srtPortfile; Target = 'source/libsrt/vcpkg-portfile.cmake'; Component = 'libsrt 1.5.6 source' }
+    @{ Source = (Join-Path $repo 'vcpkg.json'); Target = 'source/libsrt/rood-vcpkg.json'; Component = 'libsrt 1.5.6 source' }
+    @{ Source = (Join-Path $srtBuild 'CMakeCache.txt'); Target = 'source/libsrt/CMakeCache.txt'; Component = 'libsrt 1.5.6 build' }
 )
 foreach ($patch in $ffmpegPatches) {
     $files += @{
         Source = (Join-Path $ffmpegPort $patch)
         Target = "source/FFmpeg/patches/$patch"
         Component = 'FFmpeg 8.1.2 source'
+    }
+}
+foreach ($patch in $srtPatches) {
+    $files += @{
+        Source = (Join-Path $srtPort $patch)
+        Target = "source/libsrt/patches/$patch"
+        Component = 'libsrt 1.5.6 source'
     }
 }
 foreach ($license in (Get-ChildItem -LiteralPath $qtLicenses -File | Sort-Object Name)) {
@@ -139,6 +168,48 @@ $entries = foreach ($file in $files) {
     }
 }
 
+$qtSbomText = Get-Content -LiteralPath $qtSbom -Raw
+$qtBinaryAudit = foreach ($binary in @(
+    @{ SbomPath = 'bin/Qt6Core.dll'; StagePath = 'Qt6Core.dll' }
+    @{ SbomPath = 'bin/Qt6Gui.dll'; StagePath = 'Qt6Gui.dll' }
+    @{ SbomPath = 'bin/Qt6Widgets.dll'; StagePath = 'Qt6Widgets.dll' }
+    @{ SbomPath = 'plugins/platforms/qwindows.dll'; StagePath = 'platforms/qwindows.dll' }
+)) {
+    $filePattern = '(?ms)^FileName: \./' + [regex]::Escape($binary.SbomPath) +
+        '\r?\n(?<attributes>.*?)(?=^\s*$)'
+    $sbomFile = [regex]::Match($qtSbomText, $filePattern)
+    if (-not $sbomFile.Success) { throw "Qt SBOM entry is missing: $($binary.SbomPath)" }
+    $checksum = [regex]::Match($sbomFile.Groups['attributes'].Value,
+        '(?m)^FileChecksum: SHA1: (?<hash>[0-9a-fA-F]{40})\r?$')
+    if (-not $checksum.Success) { throw "Qt SBOM SHA1 is missing: $($binary.SbomPath)" }
+    $stagedPath = Join-Path $stage $binary.StagePath
+    $signature = Get-AuthenticodeSignature -LiteralPath $stagedPath
+    $expected = $checksum.Groups['hash'].Value.ToLowerInvariant()
+    $actual = (Get-FileHash -LiteralPath $stagedPath -Algorithm SHA1).Hash.ToLowerInvariant()
+    [pscustomobject]@{
+        file = $binary.StagePath
+        sbomSha1 = $expected
+        stagedSha1 = $actual
+        sha1Matches = ($expected -eq $actual)
+        signatureStatus = [string]$signature.Status
+        signer = if ($signature.SignerCertificate) { $signature.SignerCertificate.Subject } else { $null }
+    }
+}
+$qtAuditPath = Join-Path $stage 'licenses/Qt-SBOM-CHECKSUM-AUDIT.json'
+$qtBinaryAudit | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $qtAuditPath -Encoding utf8
+$entries += [pscustomobject]@{
+    path = 'licenses/Qt-SBOM-CHECKSUM-AUDIT.json'
+    component = 'Qt 6.10.3 audit'
+    bytes = (Get-Item -LiteralPath $qtAuditPath).Length
+    sha256 = (Get-FileHash -LiteralPath $qtAuditPath -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+$qtMismatchCount = @($qtBinaryAudit | Where-Object { -not $_.sha1Matches }).Count
+$qtChecksumStatus = if ($qtMismatchCount -eq 0) {
+    'All four staged Qt binary SHA-1 values match their SBOM entries.'
+} else {
+    "The Qt SBOM audit found $qtMismatchCount mismatches among four staged DLLs."
+}
+
 $commit = (& git -C $repo rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Could not read the ROOD Git revision.' }
 $gitDirty = [bool](@(& git -C $repo status --porcelain).Count)
@@ -151,13 +222,15 @@ $manifest = [ordered]@{
     qtSourceUrl = $qtSourceUrl
     qtSourceSha256 = $qtSourceSha256
     qtSourceCommit = $qtSourceCommit
+    qtSbomBinaryChecksumsMatch = ($qtMismatchCount -eq 0)
     ffmpegSourceArchiveSha512 = $ffmpegArchiveSha512
+    libsrtSourceArchiveSha512 = $srtArchiveSha512
     vcpkgRevision = $vcpkgRevision
     publishable = $false
     files = $entries
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $stage 'manifest.json') -Encoding utf8
-@'
+@"
 ROOD Windows x64 staging audit — NOT READY FOR PUBLIC DISTRIBUTION
 
 This directory is a local dependency and startup check. It uses the WASAPI-only
@@ -169,15 +242,18 @@ Before public distribution:
   The verified qtbase 6.10.3 source archive and matching SBOM commit are
   recorded in licenses/Qt-SOURCE-REFERENCE.txt; confirm the public source
   access method and third-party notices before distribution.
+  $qtChecksumStatus The per-file comparison is in
+  licenses/Qt-SBOM-CHECKSUM-AUDIT.json. A valid Authenticode signature alone
+  does not establish the reason for a mismatch.
 - Review all bundled notices and matching FFmpeg/libsrt/Qt source and build data.
-  FFmpeg's exact source archive, vcpkg patch set and generated Release build
-  configuration are retained under source/FFmpeg for review.
+  FFmpeg and libsrt source archives, vcpkg patches and Release build settings
+  are retained under source/ for review. Confirm their public source access.
 - Verify the required Microsoft Visual C++ runtime on a clean Windows machine.
 - Complete hardware ASIO, physical AV timing and active device-removal testing.
 
 manifest.json lists the staged files and SHA-256 hashes. Do not publish this
 directory merely because its local smoke test succeeds.
-'@ | Set-Content -LiteralPath (Join-Path $stage 'STAGING-STATUS.txt') -Encoding utf8
+"@ | Set-Content -LiteralPath (Join-Path $stage 'STAGING-STATUS.txt') -Encoding utf8
 
 if (-not $SkipSmokeTest) {
     $auditDir = Join-Path $repo 'build/tests/staged-release'
