@@ -130,6 +130,8 @@ WASAPI・Spout・32チャンネルOMTの同時出力を2分間受信した試験
 
 検証は映像1本、ステレオ音声1本、5.1音声1本を生成し、ストリームID、チャンネル数、PTS、デコード済みフレーム、切断後の再接続を確認します。`-FfmpegPath` でFFmpeg CLIの場所を指定できます。FFmpeg CLIは検証用で、アプリの実行時依存ではありません。
 
+CIと同じ送信器を使う場合は `./scripts/bootstrap-ffmpeg-test-cli.ps1` を実行し、`-FfmpegPath ./build/deps/ffmpeg-test-cli/ffmpeg.exe` を指定します。[gyan.devのFFmpeg 8.1.2 Essentials](https://www.gyan.dev/ffmpeg/builds/)をSHA-256で照合して `build/` へ展開します。このGPLv3のCLIはSRTループバック試験だけに使い、ROODの実行ファイルにはリンクせず、配布候補にも含めません。
+
 ASIO検証用PortAudioでは、ドライバを絞ったうえで別プリセットを使います。次の例はVB-Matrix VASIO-32の32出力チャンネル・44.1 kHzへ、48 kHz入力を変換する検証です。検証用ビルドはSteinberg SDKを含む可能性があるため、配布物には使いません。
 
 ```powershell

@@ -90,3 +90,27 @@ jobs:
             throw 'Staged release audit did not pass.'
           }
           Write-Host "Staged $(@($manifest.files).Count) files; local profile paths and credential patterns: 0."
+      - name: Fetch pinned FFmpeg test sender
+        shell: pwsh
+        timeout-minutes: 10
+        run: ./scripts/bootstrap-ffmpeg-test-cli.ps1
+      - name: SRT decode and 32-channel OMT loopback
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          try {
+            ./scripts/test-srt-loopback.ps1 `
+              -FfmpegPath ./build/deps/ffmpeg-test-cli/ffmpeg.exe `
+              -ReceiverExe ./build/msvc-media-release/rood_ingest.exe `
+              -OmtName ROOD-CI-OMT32 -OmtChannels 32 `
+              -OmtRoutes @('257:0:0','258:5:31') `
+              -OmtSignalChannels '0,31' -LogName ci-srt-omt32
+            Get-Content build/tests/ci-srt-omt32/omt-probe.stdout.txt |
+              Select-String '^omtProbe signalChannelSums='
+          } catch {
+            Get-Content build/tests/ci-srt-omt32/receiver.stderr.txt -ErrorAction SilentlyContinue |
+              Select-Object -Last 30
+            Get-Content build/tests/ci-srt-omt32/omt-probe.stderr.txt -ErrorAction SilentlyContinue |
+              Select-Object -Last 30
+            throw
+          }
