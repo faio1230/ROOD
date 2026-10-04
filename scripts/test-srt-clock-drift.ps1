@@ -18,8 +18,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-if ($AudioDevice -lt 0 -or $AudioRate -lt 8000 -or $AudioRate -gt 192000 -or
-    $AudioChannels -lt 1 -or $AudioChannels -gt 32 -or
+if ($AudioDevice -lt 0 -or $AudioRate -lt 8000 -or $AudioRate -gt 384000 -or
+    $AudioChannels -lt 1 -or $AudioChannels -gt 256 -or
     $FirstSeconds -lt 120 -or $FirstSeconds -gt 3600 -or
     $LogName -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$' -or
     [double]::IsNaN($SenderReadRate) -or [double]::IsInfinity($SenderReadRate) -or
