@@ -133,7 +133,7 @@ ASIO検証用PortAudioでは、ドライバを絞ったうえで別プリセッ�
 ./scripts/test-srt-loopback.ps1 -AudioDevice 0 -AudioChannels 32 -AudioRate 44100 -Routes @('257:0:0','258:5:31') -ReceiverExe "$(Resolve-Path ./build/msvc-media-asio/rood_ingest.exe)" -PortAudioBin "$(Resolve-Path ./build/deps/portaudio-asio-msvc-test-install/bin)" -AsioOnly 'VB-Matrix VASIO-32'
 ```
 
-ASIOの検証用ビルドにはSteinberg公式ASIO SDK 2.3.4をローカルで使います。初回のPowerShellスクリプトは公式配布URLから取得し、SHA-256を照合します。SDKとビルド成果物は `build/` 以下に置き、Gitへ含めません。検証用PortAudioパッチは環境変数で1つのASIOドライバだけを開くためのもので、通常ビルドには適用しません。
+ASIOの検証用ビルドにはSteinberg公式ASIO SDK 2.3.4をローカルで使います。初回のPowerShellスクリプトは公式配布URLから取得し、SHA-256を照合します。SDKとビルド成果物は `build/` 以下に置き、Gitへ含めません。検証用PortAudioパッチは環境変数で1つのASIOドライバだけを開くためのもので、通常ビルドには適用しません。ASIO対応版の公開にはSDKのGPLv3またはSteinberg独自ライセンスの経路を選ぶ必要があり、条件は[依存関係と公開前の確認](docs/dependencies-and-licensing.md)に整理しています。
 
 **このPCのVB-MatrixとVoicemeeterの仮想ASIOでは、44.1 kHzを申告しながら実際のコールバック消費速度は約24.5～24.8 kframes/sでした。** 短時間の開設成功は連続出力の合格を意味しません。VB-Matrixを使った20～30秒のSRT受信では音声とSpout映像が大量に破棄されたため、この環境でのASIO採用は保留です。`rood_pa_probe --timing` は申告レートと実効速度が5%以上ずれると失敗します。詳細は[PortAudio検証記録](docs/portaudio-validation.md)を参照してください。
 

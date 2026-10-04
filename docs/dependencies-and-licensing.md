@@ -26,7 +26,7 @@ Qtはモジュールごとにライセンスが異なります。Qt Widgetsの[�
 
 Qt 6.10の[Windows対応表](https://doc.qt.io/qt-6.10/windows.html)はMSVC 2022を列挙しています。ここではMSVC 2026のBuild Toolsを使います。[Microsoftのバイナリ互換性の説明](https://learn.microsoft.com/en-us/cpp/porting/binary-compat-2015-2017)を根拠にこの組み合わせを試し、ローカルでGUIのビルドと起動を確認しました。
 
-SteinbergはASIO SDKについて[オープンソース版とプロプライエタリ版](https://www.steinberg.net/developers/)を案内しています。取得した2.3.4の `LICENSE.txt` にはGPLv3またはSteinberg独自ライセンスの選択肢が記されています。ROOD自作部分をMITにしても、ASIO対応バイナリ全体をMITだけの条件で配布できると想定しません。SDK現物の条項とPortAudioの結合形態を確認してから、ASIO対応バイナリの配布方式を決めます。
+SteinbergはASIO SDKについて[オープンソース版とプロプライエタリ版](https://www.steinberg.net/developers/)を案内し、[公式発表](https://ocl-steinberg-live.steinberg.net/_storage/asset/808575/storage/master/Press%20Release%20-%202025-10-15%20-%20OBS%20Partnership-%20EN.pdf)ではオープンソース側をGPLv3としています。`scripts/prepare-portaudio-asio.ps1` は[公式配布のSDK 2.3.4](https://www.steinberg.net/asiosdk)をSHA-256で照合します。取得したSDKの `LICENSE.txt` はGPLv3またはSteinberg独自ライセンスを選べると記載し、ファイルごとのライセンス表示も確認するよう求めています。実際のPortAudio ASIO検証ビルドは、SDKの `common/asio.cpp`、`host/asiodrivers.cpp`、`host/pc/asiolist.cpp` をDLLへコンパイルします。前者はSDKの二重ライセンスを参照し、後二者には別の再配布条件が記されています。ROOD自作部分をMITにしても、ASIO対応DLLやアプリの配布条件がMITだけになるとは扱いません。
 
 ROOD自作部分は[MITライセンス](../LICENSE)で公開します。GitHubリポジトリにはソースコードだけを置き、Steinberg ASIO SDKや依存DLL、Windows実行バイナリは含めません。
 
@@ -34,7 +34,14 @@ ROOD自作部分は[MITライセンス](../LICENSE)で公開します。GitHub�
 
 現状の `windows-msvc-media-dev` はWASAPI専用のPortAudio DLLを使い、Steinberg ASIO SDKを含みません。この構成を将来のWindows実行バイナリ配布の候補にします。ただし、MITはROOD自作コードの条件であり、同梱DLLの条件を置き換えるものではありません。実際に配布するファイルを確定して、各ライセンスの義務を満たしてからバイナリを公開します。
 
-`windows-msvc-media-asio-test` はSDK 2.3.4を使うローカル検証用です。取得したSDKの `LICENSE.txt` はGPLv3とSteinberg独自ライセンスを選択肢として記載し、独自ライセンスでの公開にはSteinbergが署名した契約書を求めています。ASIO対応バイナリを出す場合は、GPLv3に沿う配布構成を整えるか、Steinbergとの契約を取得するかを先に決めます。どちらの場合もSDK内の各ファイルにある個別のライセンス表示を確認します。現時点でASIO検証版を配布物に転用しません。
+`windows-msvc-media-asio-test` はSDK 2.3.4を使うローカル検証用です。SDK同梱の独自ライセンス契約書は2.0.5版で、SDKを開発キットとして再配布しないことや、製品公開時の表示条件などを定めています。SDKの `LICENSE.txt` は独自ライセンスでの製品公開前にSteinbergが署名した契約書を求めています。ASIO対応バイナリの公開経路は次のとおりで、どちらも現時点では未選択です。
+
+| 経路 | 公開前に必要な確認 |
+| --- | --- |
+| GPLv3側 | ASIO対応PortAudio DLL、ROODアプリ、Qt・FFmpeg等を合わせた実際の配布構成について、GPLv3との整合性、対応ソース・ライセンス表示・ビルド手順を確認する。ROOD自作ソースのMIT表記は維持できるが、ASIO対応バイナリを「全体がMIT」と表示しない。 |
+| Steinberg独自ライセンス側 | Steinberg署名済み契約を取得し、契約書とSDK内の個別条件に従って製品表示と配布物を確認する。SDK本体をGitHubや配布パッケージへ含めない。 |
+
+ASIOの多チャンネル実機試験も未完了です。経路を決めてライセンスと実機の両方を確認するまで、ASIO検証版を配布物に転用しません。GitHub上のMITソース公開とWASAPI専用の確認用ステージは、このASIO対応バイナリの判断から分けて管理します。
 
 `scripts/bootstrap-qt-source.ps1` は[Qt公式のqtbase 6.10.3ソース](https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz.mirrorlist)をSHA-256 `383dc907816338f0cba72088a524c07458dfc69ce684ca9132fcc4fe91c24b0b` で確認し、ライセンス本文38件を取り出します。アーカイブの `.tag` と導入済みバイナリのSBOMには同じcommit `7ddbc87d8e14ce51d2957ea72d0a6077593d5ff4` が記録されています。`scripts/bootstrap-qt.ps1` はQt公式バイナリアーカイブを保存し、SHA-256 `4db84dee7fe3c558f242bef0a88852613af76580dc6d2b24596479f47004dad7` を検証します。ステージング時には公式アーカイブからQtの4つのDLLとSBOMを取り出し、同梱ファイルとバイト単位で照合します。5ファイルとも一致します。4つのDLLの生SHA-1はSBOM記載値と異なりますが、[PE形式の証明書テーブル](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format)を末尾から除き、証明書ディレクトリとチェックサムをゼロに戻したバイト列は4つともSBOM記載SHA-1と一致します。`scripts/measure-pe-without-certificate.ps1` がこの比較用ハッシュを求めます。これは署名前のバイト列を再構成した通常のSHA-1であり、Authenticodeのダイジェストではありません。同梱DLLのQt Company署名も有効です。
 
