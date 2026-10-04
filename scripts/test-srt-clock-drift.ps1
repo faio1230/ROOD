@@ -88,6 +88,7 @@ $maxSyncMs = ($video | ForEach-Object {
         [System.Globalization.CultureInfo]::InvariantCulture)) }
 } | Measure-Object -Maximum).Maximum
 $rendered = [long](Read-Field $lastAudio 'renderedFrames')
+$silent = [long](Read-Field $lastAudio 'silentFrames')
 $rejected = [long](Read-Field $lastAudio 'rejectedFrames')
 $underflows = [long](Read-Field $lastAudio 'deviceUnderflows')
 $received = [long](Read-Field $lastVideo 'received')
@@ -104,6 +105,8 @@ $summary = @(
     "maxLoggedDriftErrorMs=$maxErrorMs"
     "maxLoggedAudioSpoutSyncErrorMs=$maxSyncMs"
     "audioRenderedFrames=$rendered"
+    "audioSilentFrames=$silent"
+    "audioSilentSeconds=$($silent / [double]$AudioRate)"
     "audioDeviceUnderflows=$underflows"
     "audioRejectedFrames=$rejected"
     "audioRejectedFraction=$rejectedFraction"
@@ -120,6 +123,7 @@ if ([Math]::Abs($observedPpm - $expectedPpm) -gt 100 -or
     $null -eq $maxSyncMs -or $maxSyncMs -gt 40 -or $underflows -ne 0 -or
     $rejectedFraction -gt 0.001 -or $droppedFraction -gt 0.001 -or
     $failed -ne 0 -or $rendered -lt ($FirstSeconds * $AudioRate * 0.8) -or
+    $silent -gt (2 * $AudioRate) -or
     $received -lt ($FirstSeconds * 25 * 0.8) -or
     (Read-Field $lastAudio 'driftLocked') -ne '1' -or
     $first -match 'callbackStalled=1|sampleClockMismatch=1') {

@@ -141,7 +141,7 @@ ASIO実機をつないだら、検証用ビルドを作り、そのドライバ�
 ./scripts/probe-asio-msvc.ps1 -DriverName '接続したASIOドライバ名' -Channels 8 -SampleRate 48000 -Seconds 10
 ```
 
-ASIO、Spout、OMTを同時に使う長時間のクロック差試験は、Release版の検証ビルドで実行します。`-AudioDevice` は、指定したドライバだけを列挙したときの番号に合わせてください。以下の例は送信速度を公称値から+300 ppmずらし、1時間の受信中に補正量、音声とSpoutの推定時差、OMTの音声時計への追従を判定します。実機の物理出力時差と、別の送信機との同期は別途測定します。
+ASIO、Spout、OMTを同時に使う長時間のクロック差試験は、Release版の検証ビルドで実行します。`-AudioDevice` は、指定したドライバだけを列挙したときの番号に合わせてください。以下の例は送信速度を公称値から+300 ppmずらし、1時間の受信中に補正量、音声とSpoutの推定時差、OMTの音声時計への追従、内部で無音にしたフレームが2秒以内かを判定します。実機の物理出力時差と、別の送信機との同期は別途測定します。
 
 ```powershell
 ./scripts/build-media-asio-release-msvc.cmd
