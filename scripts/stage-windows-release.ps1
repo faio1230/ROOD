@@ -134,13 +134,13 @@ $files = @(
     @{ Source = $ffmpegArchive; Target = 'source/FFmpeg/ffmpeg-n8.1.2.tar.gz'; Component = 'FFmpeg 8.1.2 source' }
     @{ Source = $ffmpegPortfile; Target = 'source/FFmpeg/vcpkg-portfile.cmake'; Component = 'FFmpeg 8.1.2 source' }
     @{ Source = (Join-Path $repo 'vcpkg.json'); Target = 'source/FFmpeg/rood-vcpkg.json'; Component = 'FFmpeg 8.1.2 source' }
-    @{ Source = (Join-Path $ffmpegBuild 'ffbuild/config.sh'); Target = 'source/FFmpeg/ffbuild-config.sh'; Component = 'FFmpeg 8.1.2 build' }
-    @{ Source = (Join-Path $ffmpegBuild 'ffbuild/config.mak'); Target = 'source/FFmpeg/ffbuild-config.mak'; Component = 'FFmpeg 8.1.2 build' }
-    @{ Source = (Join-Path $ffmpegBuild 'config.h'); Target = 'source/FFmpeg/config.h'; Component = 'FFmpeg 8.1.2 build' }
+    @{ Source = (Join-Path $ffmpegBuild 'ffbuild/config.sh'); Target = 'source/FFmpeg/ffbuild-config.sh'; Component = 'FFmpeg 8.1.2 build'; RedactProfile = $true }
+    @{ Source = (Join-Path $ffmpegBuild 'ffbuild/config.mak'); Target = 'source/FFmpeg/ffbuild-config.mak'; Component = 'FFmpeg 8.1.2 build'; RedactProfile = $true }
+    @{ Source = (Join-Path $ffmpegBuild 'config.h'); Target = 'source/FFmpeg/config.h'; Component = 'FFmpeg 8.1.2 build'; RedactProfile = $true }
     @{ Source = $srtArchive; Target = 'source/libsrt/srt-v1.5.6.tar.gz'; Component = 'libsrt 1.5.6 source' }
     @{ Source = $srtPortfile; Target = 'source/libsrt/vcpkg-portfile.cmake'; Component = 'libsrt 1.5.6 source' }
     @{ Source = (Join-Path $repo 'vcpkg.json'); Target = 'source/libsrt/rood-vcpkg.json'; Component = 'libsrt 1.5.6 source' }
-    @{ Source = (Join-Path $srtBuild 'CMakeCache.txt'); Target = 'source/libsrt/CMakeCache.txt'; Component = 'libsrt 1.5.6 build' }
+    @{ Source = (Join-Path $srtBuild 'CMakeCache.txt'); Target = 'source/libsrt/CMakeCache.txt'; Component = 'libsrt 1.5.6 build'; RedactProfile = $true }
 )
 foreach ($patch in $ffmpegPatches) {
     $files += @{
@@ -164,6 +164,13 @@ foreach ($license in (Get-ChildItem -LiteralPath $qtLicenses -File | Sort-Object
     }
 }
 
+$profilePath = [Environment]::GetFolderPath('UserProfile')
+if ([string]::IsNullOrWhiteSpace($profilePath)) {
+    throw 'Could not resolve the local user profile for build metadata redaction.'
+}
+$profileVariants = @($profilePath.Replace('\', '\\'),
+                     $profilePath.Replace('\', '/'), $profilePath) | Select-Object -Unique
+$profilePlaceholder = '<LOCAL_USER_PROFILE>'
 $entries = foreach ($file in $files) {
     if (-not (Test-Path -LiteralPath $file.Source -PathType Leaf)) {
         throw "A required staging file is missing: $($file.Source)"
@@ -171,9 +178,25 @@ $entries = foreach ($file in $files) {
     $destination = Join-Path $stage $file.Target
     New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
     Copy-Item -LiteralPath $file.Source -Destination $destination
+    if ($file.RedactProfile) {
+        $text = Get-Content -LiteralPath $destination -Raw
+        foreach ($variant in $profileVariants) {
+            $text = [regex]::Replace($text, [regex]::Escape($variant),
+                                     $profilePlaceholder,
+                                     [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        }
+        Set-Content -LiteralPath $destination -Value $text -Encoding utf8 -NoNewline
+        foreach ($variant in $profileVariants) {
+            if ([regex]::IsMatch($text, [regex]::Escape($variant),
+                                 [Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
+                throw "A local user path remains in staged build metadata: $($file.Target)"
+            }
+        }
+    }
     [pscustomobject]@{
         path = ($file.Target -replace '\\', '/')
         component = $file.Component
+        profilePathRedacted = [bool]$file.RedactProfile
         bytes = (Get-Item -LiteralPath $destination).Length
         sha256 = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
     }
@@ -342,8 +365,11 @@ Before public distribution:
 - Review PRIVACY-AUDIT.json before sharing any staged files. The uncompressed
   file scan found $localPathCount files containing this PC's user-profile path and
   $credentialCount files matching credential patterns. It records filenames only;
-  compressed archives were skipped. Rebuild or sanitize the affected files and
-  recheck the actual distribution set before publishing binaries or build data.
+  compressed archives were skipped. FFmpeg and libsrt build metadata use
+  <LOCAL_USER_PROFILE> in place of this PC's absolute user path; substitute a
+  local path when reproducing those build settings. Rebuild or sanitize the
+  remaining affected files and recheck the actual distribution set before
+  publishing binaries or build data.
 - Verify the required Microsoft Visual C++ runtime on a clean Windows machine.
 - Complete hardware ASIO, physical AV timing and active device-removal testing.
 
