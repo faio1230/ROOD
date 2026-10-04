@@ -26,6 +26,8 @@ FFmpeg公式の[法務・ライセンス案内](https://ffmpeg.org/legal.html)�
 
 次の[GitHub Actions実行](https://github.com/faio1230/ROOD/actions/runs/37188689534)では、同じソース構築・CTest 5件・依存診断・102ファイルの確認用ステージに加え、固定版FFmpeg CLIからのSRTループバックを通しました。映像、2chと5.1ch音声のデコードと再接続、OMTの0番と31番の非無音信号を、クリーンなWindowsランナーで確認しています。このCLIはGPLv3の検証専用で、ROODの実行バイナリやステージへ含めません。
 
+[後続のCI実行](https://github.com/faio1230/ROOD/actions/runs/37190724342)も固定版依存のソースビルド、CTest 5件、FFmpeg DLLの `LGPL version 2.1 or later`、102ファイルの確認用ステージと非圧縮ファイル中のローカルプロファイルパス・資格情報パターン0件を確認しました。SRT受信・再接続とOMTの0番・31番に加え、2トラック合計8チャンネルの異なる信号をOMT受信側で照合しました。`publishable` は `false` のままで、これを実行バイナリ公開の許可とは扱いません。
+
 2026-10-04には公開済みGitHubリポジトリを同じWindows PCの別ディレクトリへ新規クローンし、固定済みスクリプトでQt、PortAudio、Spout2、OMT、vcpkg依存を取得・構築しました。Qtはハッシュ検証済みの公式バイナリ、OMTはハッシュ検証済みの公式配布物を使用し、PortAudioとSpout2はソースから構築しました。通常のvcpkg実行では10パッケージがバイナリキャッシュから復元されたため、次のコマンドをMSVC環境で追加実行し、vcpkgの10パッケージを別のインストール先へキャッシュなしで構築しました。
 
 ```cmd

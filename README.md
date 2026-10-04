@@ -58,6 +58,8 @@ GitHub Actionsの[`Windows source build`](https://github.com/faio1230/ROOD/actio
 
 続く[CI実行](https://github.com/faio1230/ROOD/actions/runs/37188689534)では、SHA-256で固定した検証専用FFmpeg CLIからSRTを送信し、映像・ステレオ・5.1音声のデコード、切断後の再接続、OMTの0番と31番の受信信号までクリーンなランナーで確認しました。
 
+[最新のソースビルドCI](https://github.com/faio1230/ROOD/actions/runs/37190724342)は、チャンネル構成が変わる再接続の修正も含むReleaseビルドとCTest 5件に合格しました。SRTからOMTへの32チャンネル出力で0番と31番の信号を受け、別の試験ではステレオ＋5.1音声の8チャンネルを異なるトーンで0～7番へ割り当て、受信側で全8本を照合しました。これらはソフトウェア経路の検証で、ASIO機器の物理端子の出力や独立クロックでの同期は示しません。
+
 公開前の依存ファイル確認には `./scripts/bootstrap-qt-source.ps1` の後で `./scripts/stage-windows-release.ps1` を使います。[Qt公式のqtbase 6.10.3ソース](https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz.mirrorlist)をSHA-256で照合し、ライセンス本文を取り出します。確認用フォルダーにはRelease版GUI・CLI、必要なDLL、ROODと第三者のライセンス文書、QtのSBOM・公式バイナリアーカイブ・ソースアーカイブ、FFmpeg 8.1.2とlibsrt 1.5.6のソース・vcpkgパッチ・Releaseビルド設定、ファイルのSHA-256一覧を集めます。QtのSBOMから関連する第三者パッケージ一覧も生成します。依存診断・PortAudioのASIO非列挙・SRT待受・GUI起動を最小限のPATHで確認します。**この確認用フォルダーは配布物ではありません。** Qtの第三者通知、クリーンなWindows機でのVCランタイム確認、依存DLLとビルド資料に残るローカルパスなどを `STAGING-STATUS.txt` に示します。`PRIVACY-AUDIT.json` には該当ファイル名だけを保存します。Qtの4つのDLLとSBOMは公式バイナリアーカイブ内のファイルと一致します。DLLの生SHA-1はSBOMと異なりますが、PE署名領域を除き署名位置とチェックサムをゼロに戻すと4つともSBOMと一致します。比較結果は `licenses/Qt-SBOM-CHECKSUM-AUDIT.json` に保存します。
 
 ローカルユーザーのビルドパスを含まない依存DLLを使う場合は `scripts/build-privacy-deps-msvc.cmd` で依存を構築し、`scripts/build-media-privacy-release-msvc.cmd` でROOD本体をビルドしてから `./scripts/stage-windows-release.ps1 -PrivacyBuild` を実行します。この経路もローカル確認用であり、公開可否はステージの `STAGING-STATUS.txt` で判断します。
