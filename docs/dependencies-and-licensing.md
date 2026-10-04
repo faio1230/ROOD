@@ -40,6 +40,8 @@ ROOD自作部分は[MITライセンス](../LICENSE)で公開します。GitHub�
 
 `scripts/stage-windows-release.ps1` はWASAPI専用ReleaseビルドからGUI・CLI、依存DLL、[第三者ソフトウェアの通知](third-party-notices.md)、Qtライセンス本文、2つのSPDX文書、公式バイナリアーカイブ、検証済みソースアーカイブとソース参照情報をローカル確認用フォルダーへ集めます。配布用フォルダーで起動したGUIの「ROODについて」には通知・ライセンス・ソースの場所を表示します。`scripts/audit-qt-third-party.ps1` はQtのCore・Gui・Widgets・qwindowsについて、SBOMの `DEPENDS_ON` 関係をたどり、第三者パッケージ43件を一覧にします。これはSBOM上の依存関係であり、個々のコードが実際にDLLへ組み込まれた証拠ではありません。1件はSBOM上のライセンス結論が `NOASSERTION` です。FFmpegはvcpkgのポートが指定するSHA-512と一致する8.1.2のソースアーカイブ、14件のパッチ、ポート定義、Releaseビルド時に生成した設定ファイルを保存します。libsrtも同様に1.5.6のソースアーカイブ、3件のパッチ、ポート定義、CMakeCacheを保存します。各ファイルのSHA-256、Qtの公式アーカイブとのバイト照合、Qtの4つのDLLとSBOMの生SHA-1と署名領域を除いた再構成SHA-1、Git作業ツリーの状態を記録し、依存診断、PortAudioのASIO非列挙、SRT待受、GUI起動を開発用DLLパスなしで確認します。Qtの第三者通知の最終照合、公開時のソース提供方法、WindowsのVCランタイムがない機械での起動は未確認です。フォルダー内の `STAGING-STATUS.txt` はこれらを公開前の不足として明記します。このローカル確認は公開可否の承認ではありません。
 
+`scripts/audit-stage-privacy.ps1` はステージの非圧縮ファイルを走査し、ユーザーフォルダーの絶対パスと資格情報に似た文字列を含むファイル名だけを `PRIVACY-AUDIT.json` に保存します。最新のステージでは、このPCのユーザーフォルダーのパスを12ファイルから検出し、資格情報パターンは0件でした。検出先には一部の依存DLLとFFmpeg・libsrtのビルド設定が含まれます。圧縮アーカイブ内はこの走査の対象外です。ローカルパスを含む確認用フォルダーをそのまま公開せず、実際に配布するファイルを確定した後で再構築または除去し、再監査します。
+
 SBOMでライセンス結論がない1件は `WrapAtomic` です。SBOMでは `WrapAtomic::WrapAtomic` というCMakeターゲットで `FilesAnalyzed: false` と記録されています。対応するqtbase 6.10.3ソースの `cmake/FindWrapAtomic.cmake` はC++標準の `<atomic>` を検査して `INTERFACE IMPORTED` ターゲットを作り、必要な環境だけ `-latomic` をリンクします。Windows配布フォルダーに独立した `WrapAtomic` のファイルはありません。このため、SBOM上の未結論1件をそのまま「未特定の同梱DLL」とは扱いません。Qtに取り込まれた他の第三者コードの通知確認は残っています。
 
 | 対象 | 現在の確認結果 | 公開前に実施すること |

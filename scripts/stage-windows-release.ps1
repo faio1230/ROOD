@@ -264,6 +264,17 @@ $entries += [pscustomobject]@{
     bytes = (Get-Item -LiteralPath $qtInventoryPath).Length
     sha256 = (Get-FileHash -LiteralPath $qtInventoryPath -Algorithm SHA256).Hash.ToLowerInvariant()
 }
+$privacyAuditPath = Join-Path $stage 'PRIVACY-AUDIT.json'
+$privacyAudit = & (Join-Path $PSScriptRoot 'audit-stage-privacy.ps1') `
+    -StagePath $stage -OutputPath $privacyAuditPath
+$localPathCount = @($privacyAudit.localUserProfilePathFiles).Count
+$credentialCount = @($privacyAudit.credentialPatternFiles).Count
+$entries += [pscustomobject]@{
+    path = 'PRIVACY-AUDIT.json'
+    component = 'Local privacy audit'
+    bytes = (Get-Item -LiteralPath $privacyAuditPath).Length
+    sha256 = (Get-FileHash -LiteralPath $privacyAuditPath -Algorithm SHA256).Hash.ToLowerInvariant()
+}
 $qtMismatchCount = @($qtBinaryAudit | Where-Object { -not $_.sha1Matches }).Count
 $qtReconstructionMismatchCount = @($qtBinaryAudit | Where-Object { -not $_.reconstructedSha1Matches }).Count
 $qtChecksumStatus = if ($qtMismatchCount -eq 0) {
@@ -292,6 +303,8 @@ $manifest = [ordered]@{
     qtSbomReconstructedChecksumsMatch = ($qtReconstructionMismatchCount -eq 0)
     qtThirdPartySbomPackageCount = $qtInventory.packageCount
     qtThirdPartySbomUnassertedCount = $qtUnassertedCount
+    localUserProfilePathFileCount = $localPathCount
+    credentialPatternFileCount = $credentialCount
     ffmpegSourceArchiveSha512 = $ffmpegArchiveSha512
     libsrtSourceArchiveSha512 = $srtArchiveSha512
     vcpkgRevision = $vcpkgRevision
@@ -326,6 +339,11 @@ Before public distribution:
   but its contents still need a final review against the release files.
   FFmpeg and libsrt source archives, vcpkg patches and Release build settings
   are retained under source/ for review. Confirm their public source access.
+- Review PRIVACY-AUDIT.json before sharing any staged files. The uncompressed
+  file scan found $localPathCount files containing this PC's user-profile path and
+  $credentialCount files matching credential patterns. It records filenames only;
+  compressed archives were skipped. Rebuild or sanitize the affected files and
+  recheck the actual distribution set before publishing binaries or build data.
 - Verify the required Microsoft Visual C++ runtime on a clean Windows machine.
 - Complete hardware ASIO, physical AV timing and active device-removal testing.
 
