@@ -101,6 +101,8 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 
 `test-audio-recovery.ps1` は仮想WASAPIデバイスを8秒間排他占有し、ROODが初期の開設失敗から同じSRT接続中に復帰して音声を再生するか確認します。稼働中の機器を物理的に切断する試験は別途必要です。
 
+`./scripts/test-srt-abrupt-disconnect.ps1` は受信中のFFmpeg送信プロセスを強制終了し、ROODの再待受後に別のSRT接続で映像・音声を再受信できるか確認します。同一PC上の試験では2回の接続・切断と再受信に合格しました。ログは `build/tests/srt-abrupt-disconnect` に保存します。
+
 `test-audio-active-failure.ps1` はDebug版の最初のPortAudioストリームを再生中に停止させ、同じSRT接続内での再開設と音声・Spout・OMTの継続を確認します。これはアプリ内部から停止させる試験で、Windows上の実機切断は再現しません。結果と出力の欠落は[PortAudio検証記録](docs/portaudio-validation.md)に記載しています。
 
 Spout出力のみを試す場合は `./scripts/run-ingest-msvc.cmd --port 9000 --spout ROOD` を使います。`--video-delay`、`--video-offset`、`--video-late-drop` はミリ秒単位です。`--video-delay` は音声デバイスを使わないときの遅延です。音声デバイスを同時指定すると、その出力遅延とコールバックの推定メディア時刻を映像の基準に使い、映像との時差は `--video-offset` で調整します。デコードスレッドがRGBAに変換して有界キューへ入れ、別スレッドが表示時刻に合わせて送信します。`-SpoutName` 付きループバックでは別プロセスのSpout受信器が画像画素を取得したことまで確認します。

@@ -158,8 +158,12 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         snapshot_.state = state;
         appendEventLocked("SRT: " + state);
-        if (state == "connected") {
+        if (state == "connected" || state == "disconnected") {
             snapshot_.tracks.clear();
+            snapshot_.connection = {};
+            snapshot_.hasConnectionStats = false;
+        }
+        if (state == "connected") {
             spoutFailed_ = omtFailed_ = false;
         }
     }
@@ -650,7 +654,7 @@ private:
         QString text = QStringLiteral("状態: %1\n").arg(QString::fromStdString(snapshot.state));
         if (!snapshot.error.empty())
             text += QStringLiteral("直近エラー: %1\n").arg(QString::fromStdString(snapshot.error));
-        text += QStringLiteral("\n受信フレーム  映像: %1  音声: %2\n")
+        text += QStringLiteral("\n累計受信フレーム  映像: %1  音声: %2\n")
             .arg(snapshot.videoFrames).arg(snapshot.audioFrames);
         if (snapshot.hasConnectionStats) {
             text += QStringLiteral("SRT  %1 Mb/s  RTT %2 ms\n")
