@@ -71,3 +71,22 @@ jobs:
           $output = & ./build/msvc-media-release/rood_deps_probe.exe
           if ($LASTEXITCODE -ne 0) { throw 'Media dependency verification failed.' }
           $output | Where-Object { $_ -notmatch '^FFmpeg configuration:' }
+      - name: Fetch pinned Qt source and license texts
+        shell: pwsh
+        timeout-minutes: 20
+        run: ./scripts/bootstrap-qt-source.ps1
+      - name: Stage and smoke-test Windows package
+        shell: pwsh
+        timeout-minutes: 20
+        run: |
+          ./scripts/stage-windows-release.ps1
+          $stage = Get-ChildItem build/stage -Directory -Filter 'ROOD-Windows-x64-*' |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $stage) { throw 'Staged folder was not created.' }
+          $manifest = Get-Content (Join-Path $stage.FullName 'manifest.json') -Raw | ConvertFrom-Json
+          if ($manifest.publishable -or $manifest.gitDirty -or
+              $manifest.localUserProfilePathFileCount -ne 0 -or
+              $manifest.credentialPatternFileCount -ne 0) {
+            throw 'Staged release audit did not pass.'
+          }
+          Write-Host "Staged $(@($manifest.files).Count) files; local profile paths and credential patterns: 0."
