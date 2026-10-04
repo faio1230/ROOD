@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$StagePath,
-    [Parameter(Mandatory = $true)][string]$OutputPath
+    [Parameter(Mandatory = $true)][string]$OutputPath,
+    [switch]$OnlyDlls
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,6 +29,7 @@ $scanned = 0
 $skippedArchives = 0
 foreach ($file in (Get-ChildItem -LiteralPath $stage -Recurse -File)) {
     if ($file.FullName.Equals($output, [StringComparison]::OrdinalIgnoreCase)) { continue }
+    if ($OnlyDlls -and $file.Extension.ToLowerInvariant() -ne '.dll') { continue }
     if ($archiveExtensions -contains $file.Extension.ToLowerInvariant()) {
         ++$skippedArchives
         continue
@@ -52,7 +54,11 @@ foreach ($file in (Get-ChildItem -LiteralPath $stage -Recurse -File)) {
 }
 
 $report = [pscustomobject]@{
-    scope = 'Uncompressed staged files; filenames only, no matched content'
+    scope = if ($OnlyDlls) {
+        'DLL files only; filenames only, no matched content'
+    } else {
+        'Uncompressed staged files; filenames only, no matched content'
+    }
     scannedFiles = $scanned
     skippedArchives = $skippedArchives
     userProfilePathFiles = @($paths | Sort-Object -Unique)
