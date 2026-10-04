@@ -22,7 +22,7 @@ GitHubへのpush前には `./scripts/audit-publication.ps1` で全コミット�
 
 **クロック差補正は初期実装で、1時間のローカルWASAPIループバック試験を通しました。** 別クロックの実機での長時間試験は未完了です。受信エンジンは現時点でMPEG-TSとlistenerモードに限定されます。映像と音声の同期時刻はPortAudioコールバックから推定しており、物理出力時刻の測定値ではありません。
 
-SRT受信遅延20 ms・出力遅延40 msを指定した同一PC内の短時間試験では、仮想WASAPI、Spout、32チャンネルOMTの同時出力が通りました。実ネットワークで安定する最小値や物理的な出力遅延を示す結果ではありません。数値と試験条件は[PortAudio検証記録](docs/portaudio-validation.md)に記載しています。
+SRT受信遅延20 ms・出力遅延40 msを指定した同一PC内の短時間試験では、仮想WASAPIの共有・排他、Spout、32チャンネルOMTの同時出力が通りました。実ネットワークで安定する最小値や物理的な出力遅延を示す結果ではありません。数値と試験条件は[PortAudio検証記録](docs/portaudio-validation.md)に記載しています。
 
 ## Windows MSVC + Qt 6での開発
 
