@@ -190,7 +190,6 @@ ASIOドライバ名、デバイス番号、サンプルレートは実機に合�
 ## 開発メモ
 
 - [アーキテクチャと次の実装順](docs/architecture.md)
-- [ローカル環境の調査結果と不足項目](docs/environment-2026-10-04.md)
 - [PortAudio実機検証計画](docs/portaudio-validation.md)
 - [依存関係・公開ライセンスの確認事項](docs/dependencies-and-licensing.md)
 
