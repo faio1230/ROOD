@@ -175,6 +175,9 @@ private:
         bool hostAnchorSet = false;
         double hostAnchorPts = 0.0;
         Clock::time_point hostAnchorTime;
+        bool hadAudioClock = false;
+        double lastAudioPosition = 0.0;
+        Clock::time_point lastAudioClockTime;
         while (!stopping_.load()) {
             QueuedVideoFrame frame;
             {
@@ -186,6 +189,7 @@ private:
                 if (generation_ != observedGeneration) {
                     observedGeneration = generation_;
                     hostAnchorSet = false;
+                    hadAudioClock = false;
                     lock.unlock();
                     spout->ReleaseSender();
                     spout->SetSenderName(config_.senderName.c_str());
@@ -204,6 +208,13 @@ private:
                 }
                 std::optional<double> audioPosition;
                 if (audioMediaClock_) audioPosition = audioMediaClock_();
+                if (audioPosition && !std::isfinite(*audioPosition)) audioPosition.reset();
+                const auto now = Clock::now();
+                if (audioPosition) {
+                    hadAudioClock = true;
+                    lastAudioPosition = *audioPosition;
+                    lastAudioClockTime = now;
+                }
                 if (!audioPosition) {
                     std::lock_guard<std::mutex> lock(mutex_);
                     if (rebaseRequested_ && !queue_.empty()) {
@@ -214,7 +225,7 @@ private:
                         hostAnchorSet = false;
                     }
                 }
-                if (audioMediaClock_ && !audioPosition &&
+                if (audioMediaClock_ && !audioPosition && !hadAudioClock &&
                     Clock::now() - clockWaitStart < std::chrono::seconds(1)) {
                     std::unique_lock<std::mutex> lock(mutex_);
                     queueCv_.wait_for(lock, std::chrono::milliseconds(5));
@@ -224,6 +235,11 @@ private:
                 double waitSeconds = 0.0;
                 if (frame.hasPts && audioPosition) {
                     waitSeconds = frame.ptsSeconds + config_.videoOffsetMs / 1000.0 - *audioPosition;
+                } else if (frame.hasPts && hadAudioClock) {
+                    const double estimatedPosition = lastAudioPosition +
+                        std::chrono::duration<double>(now - lastAudioClockTime).count();
+                    waitSeconds = frame.ptsSeconds + config_.videoOffsetMs / 1000.0 -
+                                  estimatedPosition;
                 } else if (frame.hasPts) {
                     if (!hostAnchorSet) {
                         hostAnchorSet = true;

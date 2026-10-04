@@ -105,7 +105,8 @@ public:
                       << " silentFrames=" << summary.silentFrames
                       << " renderedFrames=" << summary.renderedFrames
                       << " rejectedFrames=" << summary.rejectedFrames
-                      << " recoveries=" << summary.recoveries << std::endl;
+                      << " recoveries=" << summary.recoveries
+                      << " streamFailures=" << summary.streamFailures << std::endl;
             audioOutput->reset();
         }
 #endif
@@ -231,7 +232,8 @@ public:
                       << " sampleClockMismatch=" << audio.sampleClockMismatch
                       << " deviceAvailable=" << audio.deviceAvailable
                       << " reopenAttempts=" << audio.reopenAttempts
-                      << " recoveries=" << audio.recoveries << std::endl;
+                      << " recoveries=" << audio.recoveries
+                      << " streamFailures=" << audio.streamFailures << std::endl;
             if (!audio.lastError.empty())
                 std::cout << "audioRecoveryError=" << audio.lastError << std::endl;
         }

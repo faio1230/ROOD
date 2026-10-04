@@ -17,6 +17,7 @@ struct RecoveringAudioOutputStats : AudioOutputStats {
     bool deviceAvailable = false;
     std::uint64_t reopenAttempts = 0;
     std::uint64_t recoveries = 0;
+    std::uint64_t streamFailures = 0;
     std::string lastError;
 };
 

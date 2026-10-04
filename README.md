@@ -9,7 +9,8 @@ ROODは、SRTの受信・分配・接続状況の監視に特化したWindowsア
 - GUIの設定は受信開始時と終了時にユーザー別のINIファイルへ保存します。次回起動時にチャンネル経路とデバイス識別子を復元し、デバイスが見つからない間は選択を待機状態で保持します。受信は自動開始しません。
 - PortAudio開発ファイルが見つかる環境では、デバイス列挙、WASAPI共有／排他の形式確認、無音出力時のタイムスタンプ確認ができます。
 - 開発用CLI `rood_ingest` がSRT listenerでMPEG-TSを受信し、FFmpegで映像と複数音声トラックを分離・デコードします。ストリームID、チャンネル構成、PTS、受信統計を表示し、切断後は再び待ち受けます。
-- `rood_ingest` に音声デバイスを指定すると、各トラックのチャンネルを任意の出力チャンネルへ割り当て、必要なサンプルレート変換を行ってPortAudioのWASAPI／ASIOデバイスへ出力できます。出力遅延をミリ秒で指定できます。デバイスが使えなくなった場合は同じ名前とホストAPIを再列挙し、1秒間隔で開き直します。受信統計の更新時にも出力状態とコールバックの停止を確認するため、SRT接続中に音声フレームが途切れても復帰試行を続けます。
+- `rood_ingest` に音声デバイスを指定すると、各トラックのチャンネルを任意の出力チャンネルへ割り当て、必要なサンプルレート変換を行ってPortAudioのWASAPI／ASIOデバイスへ出力できます。出力遅延をミリ秒で指定できます。デバイスが使えなくなった場合は識別子、または名前とホストAPIで再探索し、開設に失敗したときは1秒間隔で再試行します。受信統計の更新時にも出力状態とコールバックの停止を確認するため、SRT接続中に音声フレームが途切れても復帰試行を続けます。
+- 稼働中に音声ストリームが止まった場合は停止回数を記録し、直ちに再開設を試みます。再開設に失敗した場合は1秒間隔で再試行します。停止回数と復帰回数をGUIとCLIに表示します。
 - `rood_ingest` にSpout名を指定すると、デコード映像をSpout2へ出力できます。音声デバイスを同時指定した場合は、音声コールバックの推定メディア時刻に映像を合わせます。
 - `rood_ingest` にOMT名を指定すると、映像と、複数トラックから最大32チャンネルへルーティングした音声をOMTへ出力できます。双方の元PTSをOMTタイムスタンプへ渡します。
 
@@ -74,6 +75,7 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 ./scripts/test-srt-clock-drift.ps1 -AudioDevice 12 -SenderReadRate 1.0003 -LogName srt-rate-plus300
 ./scripts/test-srt-clock-drift.ps1 -AudioDevice 12 -SenderReadRate 0.9997 -LogName srt-rate-minus300
 ./scripts/test-audio-recovery.ps1
+./scripts/test-audio-active-failure.ps1 -AudioDevice 12 -WithVideoOutputs
 ```
 
 仮想ケーブル録音試験にはVB-Audio Virtual Cable、`C:\Program Files\ffmpeg\bin\ffmpeg.exe`、Pythonが必要です。WASAPIの共有・排他それぞれで、ROODが出した左右の識別信号を対になる録音端から取得して判定します。出力先のPortAudio番号は名前から探します。録音端までの確認結果と限界は[検証記録](docs/portaudio-validation.md)に記載しています。
@@ -92,6 +94,8 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 1時間試験の最初のSRT接続では、音声172,339,052フレーム、Spout映像89,968フレームを出力しました。デバイスunderflowとSpout送信失敗は0、補正器は安定状態でした。一時的なPC負荷上昇時に音声14,825フレーム（約0.31秒）と映像1フレームが破棄され、SRT受信キューは最大575 msになりました。ログ上の補正誤差は最大2.44 ms、音声・Spout推定時差は最大17.97 msでした。これらはアプリ内部の観測値です。試験後、SRT切断・再接続も通りました。詳細は[検証記録](docs/portaudio-validation.md)を参照してください。
 
 `test-audio-recovery.ps1` は仮想WASAPIデバイスを8秒間排他占有し、ROODが初期の開設失敗から同じSRT接続中に復帰して音声を再生するか確認します。稼働中の機器を物理的に切断する試験は別途必要です。
+
+`test-audio-active-failure.ps1` はDebug版の最初のPortAudioストリームを再生中に停止させ、同じSRT接続内での再開設と音声・Spout・OMTの継続を確認します。これはアプリ内部から停止させる試験で、Windows上の実機切断は再現しません。結果と出力の欠落は[PortAudio検証記録](docs/portaudio-validation.md)に記載しています。
 
 Spout出力のみを試す場合は `./scripts/run-ingest-msvc.cmd --port 9000 --spout ROOD` を使います。`--video-delay`、`--video-offset`、`--video-late-drop` はミリ秒単位です。`--video-delay` は音声デバイスを使わないときの遅延です。音声デバイスを同時指定すると、その出力遅延とコールバックの推定メディア時刻を映像の基準に使い、映像との時差は `--video-offset` で調整します。デコードスレッドがRGBAに変換して有界キューへ入れ、別スレッドが表示時刻に合わせて送信します。`-SpoutName` 付きループバックでは別プロセスのSpout受信器が画像画素を取得したことまで確認します。
 

@@ -221,6 +221,31 @@ public:
         checkPa(Pa_OpenStream(stream_.address(), nullptr, &parameters, config_.sampleRate,
                               paFramesPerBufferUnspecified, paNoFlag, &callback, this),
                 "Pa_OpenStream");
+#ifdef ROOD_ENABLE_AUDIO_FAULT_INJECTION
+        // A one-shot callback stop exercises recovery without touching the
+        // operator's Windows audio device. Never compile this into Release.
+        std::string faultThreshold;
+#ifdef _MSC_VER
+        char* raw = nullptr;
+        std::size_t length = 0;
+        if (_dupenv_s(&raw, &length, "ROOD_TEST_ABORT_AUDIO_AFTER_CALLBACKS") == 0 && raw) {
+            if (length > 0) faultThreshold.assign(raw, length - 1);
+            std::free(raw);
+        }
+#else
+        if (const char* raw = std::getenv("ROOD_TEST_ABORT_AUDIO_AFTER_CALLBACKS"))
+            faultThreshold = raw;
+#endif
+        if (!faultThreshold.empty()) {
+            char* end = nullptr;
+            const auto threshold = std::strtoul(faultThreshold.c_str(), &end, 10);
+            if (end != faultThreshold.c_str() && *end == '\0' &&
+                threshold > 0 && threshold <= 100000) {
+                static std::atomic_bool claimed{false};
+                if (!claimed.exchange(true)) abortAfterCallbacks_ = threshold;
+            }
+        }
+#endif
     }
 
     void pushFrame(const FrameInfo& info, const AVFrame& frame) {
@@ -364,7 +389,11 @@ private:
         auto& self = *static_cast<Impl*>(user);
         const auto rendered = self.timeline_.pull(frames, static_cast<float*>(output));
         self.renderedFrames_.fetch_add(rendered);
+#ifdef ROOD_ENABLE_AUDIO_FAULT_INJECTION
+        const auto callbackCount = self.callbacks_.fetch_add(1) + 1;
+#else
         self.callbacks_.fetch_add(1);
+#endif
         self.lastCallbackTicks_.store(Clock::now().time_since_epoch().count());
         const double ratio = 1.0 + self.driftPpm_.load() / 1000000.0;
         self.mediaPosition_.store(self.mediaPosition_.load() +
@@ -376,6 +405,10 @@ private:
                 self.timestampRegressions_.fetch_add(1);
             self.lastDacTime_ = current;
         }
+#ifdef ROOD_ENABLE_AUDIO_FAULT_INJECTION
+        if (self.abortAfterCallbacks_ && callbackCount >= self.abortAfterCallbacks_)
+            return paAbort;
+#endif
         return paContinue;
     }
 
@@ -403,6 +436,9 @@ private:
     std::atomic<std::uint64_t> renderedFrames_{0};
     std::atomic<std::uint64_t> deviceUnderflows_{0};
     std::atomic<std::uint64_t> timestampRegressions_{0};
+#ifdef ROOD_ENABLE_AUDIO_FAULT_INJECTION
+    unsigned long abortAfterCallbacks_ = 0;
+#endif
 };
 
 PortAudioOutput::PortAudioOutput(AudioOutputConfig config)

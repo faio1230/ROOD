@@ -8,6 +8,7 @@ param(
     [string]$PortAudioBin = '',
     [int]$AudioChannels = 2,
     [int]$AudioRate = 48000,
+    [double]$MinFirstAudioRenderPercent = 80.0,
     [int]$AudioDelayMs = 250,
     [int]$VideoDelayMs = 250,
     [int]$SrtLatencyMs = 120,
@@ -15,6 +16,7 @@ param(
     [string[]]$Routes = @('257:0:0', '258:5:1'),
     [string]$AsioOnly = '',
     [string]$SpoutName = '',
+    [double]$MaxFirstSpoutDropPercent = 1.0,
     [string]$OmtName = '',
     [int]$OmtChannels = 2,
     [int]$OmtDelayMs = 250,
@@ -53,6 +55,14 @@ $senderRateText = $SenderReadRate.ToString('0.000000',
     [System.Globalization.CultureInfo]::InvariantCulture)
 if ($LogName -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$') {
     throw 'LogName must contain only letters, digits, underscores and hyphens.'
+}
+if ([double]::IsNaN($MaxFirstSpoutDropPercent) -or
+    $MaxFirstSpoutDropPercent -lt 0 -or $MaxFirstSpoutDropPercent -gt 100) {
+    throw 'MaxFirstSpoutDropPercent must be between 0 and 100.'
+}
+if ([double]::IsNaN($MinFirstAudioRenderPercent) -or
+    $MinFirstAudioRenderPercent -lt 0 -or $MinFirstAudioRenderPercent -gt 100) {
+    throw 'MinFirstAudioRenderPercent must be between 0 and 100.'
 }
 if ($OmtName -and ($OmtChannels -lt 1 -or $OmtChannels -gt 32 -or
                    $OmtDelayMs -lt 0 -or $OmtDelayMs -gt 5000 -or
@@ -255,7 +265,8 @@ try {
             }
             $rendered = [long]$firstRendered.Groups[1].Value
             $rejected = [long]$firstRejected.Groups[1].Value
-            if ($rendered -lt ($FirstSeconds * $AudioRate * 0.8) -or
+            if ($rendered -lt ($FirstSeconds * $AudioRate *
+                               $MinFirstAudioRenderPercent / 100) -or
                 $rejected -gt ($FirstSeconds * $AudioRate * 0.01) -or
                 $firstOutput -match 'sampleClockMismatch=1') {
                 throw "First-connection audio clock or media continuity failed. See $stdout"
@@ -280,7 +291,8 @@ try {
         $received = [regex]::Match($firstSpout.Value, 'received=(\d+)')
         $dropped = [regex]::Match($firstSpout.Value, 'dropped=(\d+)')
         if (-not $received.Success -or -not $dropped.Success -or
-            [long]$dropped.Groups[1].Value -gt ([long]$received.Groups[1].Value * 0.01)) {
+            [long]$dropped.Groups[1].Value -gt
+                ([long]$received.Groups[1].Value * $MaxFirstSpoutDropPercent / 100)) {
             throw "First-connection Spout output dropped too many frames. See $stdout"
         }
     }

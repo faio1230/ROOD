@@ -101,6 +101,7 @@ public:
         if (!output) static_cast<AudioOutputStats&>(result) = lastStats_;
         result.reopenAttempts = reopenAttempts_;
         result.recoveries = recoveries_;
+        result.streamFailures = streamFailures_;
         result.lastError = lastError_;
         return result;
     }
@@ -151,8 +152,11 @@ private:
             std::lock_guard<std::mutex> lock(mutex_);
             lastStats_ = oldStats;
             lastError_ = error;
+            ++streamFailures_;
         }
-        nextAttempt_ = Clock::now() + std::chrono::seconds(1);
+        // The first retry after a running stream fails can be immediate. If
+        // the device is still absent, tryOpen() applies the one-second backoff.
+        nextAttempt_ = Clock::now();
     }
 
     AudioOutputConfig config_;
@@ -167,6 +171,7 @@ private:
     AudioOutputStats lastStats_;
     std::uint64_t reopenAttempts_ = 0;
     std::uint64_t recoveries_ = 0;
+    std::uint64_t streamFailures_ = 0;
     std::string lastError_;
 };
 

@@ -82,6 +82,8 @@ if(ROOD_BUILD_AUDIO_OUTPUT)
         "${PORTAUDIO_INCLUDE_DIR}" "${PORTAUDIO_WASAPI_INCLUDE_DIR}")
     target_link_libraries(rood_audio PUBLIC rood_engine rood_media
         "${PORTAUDIO_LIBRARY}" "${ROOD_SWRESAMPLE_LIBRARY}")
+    target_compile_definitions(rood_audio PRIVATE
+        $<$<CONFIG:Debug>:ROOD_ENABLE_AUDIO_FAULT_INJECTION=1>)
     if(WIN32)
         target_link_libraries(rood_audio PUBLIC ole32)
     endif()

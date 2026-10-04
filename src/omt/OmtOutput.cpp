@@ -199,6 +199,7 @@ public:
             anchorSet_ = false;
             audioStarted_ = false;
             hostClockFallback_.store(false);
+            lastAudioClockValid_ = false;
             ++generation_;
             timeline_.reset();
         }
@@ -247,16 +248,29 @@ private:
         const auto clockGrace = std::chrono::milliseconds(
             std::min(config_.outputDelayMs, 250));
         while (true) {
+            const auto now = Clock::now();
+            std::optional<double> clockPosition;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 if (stopping_.load()) return WaitResult::Stop;
                 if (generation != generation_) return WaitResult::Reset;
+                if (lastAudioClockValid_) {
+                    clockPosition = lastAudioPosition_ +
+                        std::chrono::duration<double>(now - lastAudioClockTime_).count();
+                }
             }
-            const auto now = Clock::now();
             std::optional<double> devicePosition;
             if (audioMediaClock_) devicePosition = audioMediaClock_();
             if (devicePosition && !std::isfinite(*devicePosition)) devicePosition.reset();
-            if (audioMediaClock_ && !devicePosition && !hostClockFallback_.load() &&
+            if (devicePosition) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (generation != generation_) return WaitResult::Reset;
+                lastAudioPosition_ = *devicePosition;
+                lastAudioClockTime_ = Clock::now();
+                lastAudioClockValid_ = true;
+                clockPosition = devicePosition;
+            }
+            if (audioMediaClock_ && !clockPosition && !hostClockFallback_.load() &&
                 now - startedWaiting < clockGrace) {
                 std::unique_lock<std::mutex> lock(mutex_);
                 cv_.wait_for(lock, std::chrono::milliseconds(5));
@@ -264,9 +278,9 @@ private:
             }
             if (devicePosition) hostClockFallback_.store(false);
             else if (audioMediaClock_) hostClockFallback_.store(true);
-            const double waitSeconds = devicePosition
-                ? pts + audioClockOffsetSeconds_ - *devicePosition
-                : std::chrono::duration<double>(hostTarget - now).count();
+            const double waitSeconds = clockPosition
+                ? pts + audioClockOffsetSeconds_ - *clockPosition
+                : std::chrono::duration<double>(hostTarget - Clock::now()).count();
             if (waitSeconds < -lateSeconds) return WaitResult::Late;
             if (waitSeconds <= 0.002) return WaitResult::Ready;
             std::unique_lock<std::mutex> lock(mutex_);
@@ -490,6 +504,9 @@ private:
     bool anchorSet_ = false;
     bool audioStarted_ = false;
     std::atomic_bool hostClockFallback_{false};
+    bool lastAudioClockValid_ = false;
+    double lastAudioPosition_ = 0.0;
+    Clock::time_point lastAudioClockTime_;
     double anchorPts_ = 0.0;
     Clock::time_point anchorTime_;
     std::uint64_t generation_ = 0;
