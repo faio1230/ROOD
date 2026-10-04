@@ -25,7 +25,14 @@ if (Test-Path -LiteralPath $qtConfig) {
 
 New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
 if (-not (Test-Path -LiteralPath (Join-Path $venv 'Scripts/python.exe'))) {
-    py -3.11 -m venv $venv
+    $pathPythonVersion = if (Get-Command python -ErrorAction SilentlyContinue) {
+        & python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
+    } else { '' }
+    if ($LASTEXITCODE -eq 0 -and $pathPythonVersion -eq '3.11') {
+        & python -m venv $venv
+    } else {
+        & py -3.11 -m venv $venv
+    }
     if ($LASTEXITCODE -ne 0) { throw 'Python 3.11 virtual environment creation failed' }
 }
 

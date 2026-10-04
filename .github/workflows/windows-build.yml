@@ -1,0 +1,66 @@
+name: Windows source build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/windows-build.yml
+      - CMakeLists.txt
+      - CMakePresets.json
+      - vcpkg.json
+      - apps/**
+      - include/**
+      - src/**
+      - tests/**
+      - scripts/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 120
+    env:
+      ROOD_VCPKG_SOURCE_BUILD: '1'
+      VCPKG_DISABLE_METRICS: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Bootstrap Qt 6 Widgets
+        shell: pwsh
+        run: ./scripts/bootstrap-qt.ps1
+      - name: Bootstrap PortAudio
+        shell: cmd
+        run: scripts\bootstrap-portaudio-msvc.cmd
+      - name: Bootstrap Spout2
+        shell: cmd
+        run: scripts\bootstrap-spout2.cmd
+      - name: Bootstrap OMT
+        shell: pwsh
+        run: ./scripts/bootstrap-omt.ps1
+      - name: Build FFmpeg and libsrt from pinned source
+        shell: cmd
+        run: scripts\bootstrap-media-deps.cmd
+      - name: Build ROOD and run CTest
+        shell: cmd
+        run: scripts\build-media-release-msvc.cmd
+      - name: Verify linked media licenses and symbols
+        shell: pwsh
+        run: |
+          $root = (Get-Location).Path
+          $bins = @(
+            'build/deps/vcpkg-installed/x64-windows/bin'
+            'build/deps/portaudio-msvc-install/bin'
+            'build/deps/spout2-msvc-install/bin'
+            'build/deps/omt-v1.0.0.16/Libraries/Winx64'
+          ) | ForEach-Object { Join-Path $root $_ }
+          $env:PATH = ($bins -join ';') + ';' + $env:PATH
+          $output = & ./build/msvc-media-release/rood_deps_probe.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Media dependency verification failed.' }
+          $output | Where-Object { $_ -notmatch '^FFmpeg configuration:' }

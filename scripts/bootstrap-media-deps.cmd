@@ -24,7 +24,9 @@ if not exist "%VCPKG_ROOT%\vcpkg.exe" (
   if errorlevel 1 exit /b %errorlevel%
 )
 
-"%VCPKG_ROOT%\vcpkg.exe" install --triplet x64-windows --x-install-root "%REPOSITORY%\build\deps\vcpkg-installed" --no-print-usage
+set "BINARY_SOURCE_OPTION="
+if /I "%ROOD_VCPKG_SOURCE_BUILD%"=="1" set "BINARY_SOURCE_OPTION=--binarysource=clear"
+"%VCPKG_ROOT%\vcpkg.exe" install --triplet x64-windows --x-install-root "%REPOSITORY%\build\deps\vcpkg-installed" --no-print-usage %BINARY_SOURCE_OPTION%
 if errorlevel 1 exit /b %errorlevel%
 
 echo Pinned libsrt and LGPL-target FFmpeg development libraries installed.
