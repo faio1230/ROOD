@@ -22,6 +22,8 @@ FFmpeg公式の[法務・ライセンス案内](https://ffmpeg.org/legal.html)�
 
 `scripts/verify-clean-build-msvc.cmd` は既存のCMakeビルドディレクトリを再利用せず、固定済みのローカル依存からWASAPI専用Release構成を新規生成します。全ターゲットのビルド、CTest、`rood_deps_probe`、PortAudioにASIOデバイスが現れないことの確認を実行して合格しました。この確認はソースからの再構成を示しますが、依存ライブラリを未導入のWindows機での取得・構築やVCランタイムの配布条件を検証したものではありません。
 
+2026-10-04の[GitHub Actions実行](https://github.com/faio1230/ROOD/actions/runs/37184162073)は、Windowsのクリーンランナー上で固定版のQt 6とOMTのバイナリを取得し、PortAudioとSpout2をソースから構築しました。vcpkgのバイナリキャッシュを使わずにFFmpegとlibsrtもソースから構築しました。続くROODのReleaseビルドは38工程、CTestは5件すべて合格しました。`rood_deps_probe` はFFmpeg DLLの `LGPL version 2.1 or later` とlibsrt・Spout2・OMTのリンクを確認しました。実機ASIO、独立クロックの長時間同期、機器切断・復帰、配布パッケージの起動を、このCI結果だけで合格とはしません。
+
 2026-10-04には公開済みGitHubリポジトリを同じWindows PCの別ディレクトリへ新規クローンし、固定済みスクリプトでQt、PortAudio、Spout2、OMT、vcpkg依存を取得・構築しました。Qtはハッシュ検証済みの公式バイナリ、OMTはハッシュ検証済みの公式配布物を使用し、PortAudioとSpout2はソースから構築しました。通常のvcpkg実行では10パッケージがバイナリキャッシュから復元されたため、次のコマンドをMSVC環境で追加実行し、vcpkgの10パッケージを別のインストール先へキャッシュなしで構築しました。
 
 ```cmd
