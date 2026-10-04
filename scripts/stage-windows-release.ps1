@@ -97,6 +97,7 @@ if (Test-Path -LiteralPath $stage) { throw "Stage directory already exists: $sta
 New-Item -ItemType Directory -Path $stage | Out-Null
 
 $files = @(
+    @{ Source = (Join-Path $repo 'docs/third-party-notices.md'); Target = 'THIRD-PARTY-NOTICES.md'; Component = 'Third-party notices' }
     @{ Source = (Join-Path $build 'rood_gui.exe'); Target = 'rood_gui.exe'; Component = 'ROOD' }
     @{ Source = (Join-Path $build 'rood_ingest.exe'); Target = 'rood_ingest.exe'; Component = 'ROOD' }
     @{ Source = (Join-Path $build 'rood_deps_probe.exe'); Target = 'rood_deps_probe.exe'; Component = 'ROOD' }
@@ -316,8 +317,12 @@ Before public distribution:
   The reconstruction is a flat SHA-1 comparison, not an Authenticode digest.
   The Qt SBOM dependency inventory lists $($qtInventory.packageCount) third-party packages,
   including $qtUnassertedCount with no license conclusion. See licenses/Qt-THIRD-PARTY-SBOM-INVENTORY.json;
-  review actual inclusion and the full notices in the bundled SPDX and source.
+  the unasserted WrapAtomic entry is an INTERFACE IMPORTED CMake target in
+  cmake/FindWrapAtomic.cmake, with no separate file staged. Review actual
+  inclusion and the full notices in the bundled SPDX and source.
 - Review all bundled notices and matching FFmpeg/libsrt/Qt source and build data.
+  THIRD-PARTY-NOTICES.md lists the staged components and local source paths,
+  but its contents still need a final review against the release files.
   FFmpeg and libsrt source archives, vcpkg patches and Release build settings
   are retained under source/ for review. Confirm their public source access.
 - Verify the required Microsoft Visual C++ runtime on a clean Windows machine.

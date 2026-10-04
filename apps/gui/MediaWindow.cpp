@@ -9,6 +9,7 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDateTime>
+#include <QDir>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -301,12 +302,29 @@ public:
         auto* help = menuBar()->addMenu(QStringLiteral("ヘルプ"));
         auto* about = help->addAction(QStringLiteral("ROODについて"));
         connect(about, &QAction::triggered, this, [this] {
-            QMessageBox::about(this, QStringLiteral("ROODについて"),
-                QStringLiteral("ROOD %1\nStudio Sandix 開発コード\n\n"
-                               "SRT受信・Spout2／OMT分配・ASIO／WASAPI音声出力\n\n"
-                               "このソフトウェアはFFmpegプロジェクトのライブラリを"
-                               "LGPL v2.1以降の条件で使用しています。")
-                    .arg(QCoreApplication::applicationVersion()));
+            QString description = QStringLiteral(
+                "ROOD %1\nStudio Sandix 開発コード\n\n"
+                "SRT受信・Spout2／OMT分配・PortAudio音声出力\n\n"
+                "このソフトウェアはFFmpegプロジェクトのライブラリを"
+                "LGPL v2.1以降の条件で使用しています。\n"
+                "Qt、libsrt、PortAudio、Spout2、OMTなどの第三者ソフトウェアも使用しています。")
+                    .arg(QCoreApplication::applicationVersion());
+            const QDir appDir(QCoreApplication::applicationDirPath());
+            if (appDir.exists(QStringLiteral("THIRD-PARTY-NOTICES.md")) &&
+                appDir.exists(QStringLiteral("licenses")) &&
+                appDir.exists(QStringLiteral("source"))) {
+                description += QStringLiteral(
+                    "\n\n第三者ソフトウェアの通知: %1\n"
+                    "ライセンス本文: %2\n"
+                    "FFmpeg・Qt・libsrtの対応ソースとビルド情報: %3")
+                    .arg(QDir::toNativeSeparators(appDir.absoluteFilePath(
+                             QStringLiteral("THIRD-PARTY-NOTICES.md"))),
+                         QDir::toNativeSeparators(appDir.absoluteFilePath(
+                             QStringLiteral("licenses"))),
+                         QDir::toNativeSeparators(appDir.absoluteFilePath(
+                             QStringLiteral("source"))));
+            }
+            QMessageBox::about(this, QStringLiteral("ROODについて"), description);
         });
         auto* central = new QWidget(this);
         auto* root = new QVBoxLayout(central);
