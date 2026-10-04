@@ -62,6 +62,8 @@ ASIOの多チャンネル実機試験も未完了です。経路を決めてラ�
 
 この依存セットにリンクした別のROOD ReleaseビルドではCTest 5件、FFmpegのLGPL診断、WASAPI・Spout・OMTを使うSRTループバックが合格しました。必要な実行ファイルとDLLだけを集めた24ファイルのローカル実行候補では、非圧縮ファイルの監査でこのPCのユーザーフォルダーのパスと資格情報パターンがともに0件でした。GUIも起動を確認しました。Qt公式配布の4ファイルにはビルド元のユーザーフォルダー形式のパスが残るため、一般的なパス検出結果は0件ではありません。この候補には第三者通知や対応ソースの公開用構成をまだ付けていません。バイナリ配布には完成したフォルダー全体の再監査とライセンス確認が必要です。
 
+`scripts/build-media-privacy-release-msvc.cmd` はその依存セットでROODを新規Releaseビルドし、CTestと依存診断を行います。`scripts/stage-windows-release.ps1 -PrivacyBuild` は同じ依存セットとROOD Releaseビルドを選び、ライセンス文書・検証済みソースアーカイブ・vcpkgパッチ・FFmpegのconfigure記録・libsrtのCMake設定ログを含むローカル確認用フォルダーを作ります。クリーンアップ付きビルドでは生成された `config.h` 等が消えるため、プライバシー用経路は残存する構築ログを設定記録として使います。2026-10-04の確認では95ファイルを走査し、このPCのユーザーフォルダーのパスと資格情報パターンは0件でした。MSYS形式の `/Users/` と `/home/` も構築記録から置換しました。Qt公式DLL 4件とSBOMには配布元のユーザーフォルダー形式のパスが残ります。公式アーカイブ4件はハッシュを確認済みですが、圧縮ファイル内部の文字列走査は未実施です。ステージの起動試験は合格し、通常経路のステージ作成も再確認しました。バイナリ公開の条件は `STAGING-STATUS.txt` に残し、manifestの `publishable` は引き続き `false` です。
+
 SBOMでライセンス結論がない1件は `WrapAtomic` です。SBOMでは `WrapAtomic::WrapAtomic` というCMakeターゲットで `FilesAnalyzed: false` と記録されています。対応するqtbase 6.10.3ソースの `cmake/FindWrapAtomic.cmake` はC++標準の `<atomic>` を検査して `INTERFACE IMPORTED` ターゲットを作り、必要な環境だけ `-latomic` をリンクします。Windows配布フォルダーに独立した `WrapAtomic` のファイルはありません。このため、SBOM上の未結論1件をそのまま「未特定の同梱DLL」とは扱いません。Qtに取り込まれた他の第三者コードの通知確認は残っています。
 
 | 対象 | 現在の確認結果 | 公開前に実施すること |

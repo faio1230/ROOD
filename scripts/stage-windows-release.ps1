@@ -1,15 +1,18 @@
-param([switch]$SkipSmokeTest)
+param([switch]$SkipSmokeTest, [switch]$PrivacyBuild)
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$build = Join-Path $repo 'build/msvc-media-release'
+$buildName = if ($PrivacyBuild) { 'build/msvc-media-privacy' } else { 'build/msvc-media-release' }
+$build = Join-Path $repo $buildName
 $dependencies = Join-Path $repo 'build/deps'
 $qt = Join-Path $dependencies 'qt/6.10.3/msvc2022_64'
 $qtArchiveName = 'qtbase-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z'
 $qtArchive = Join-Path $dependencies "qt-archives/$qtArchiveName"
 $qtArchiveSha256 = '4db84dee7fe3c558f242bef0a88852613af76580dc6d2b24596479f47004dad7'
-$vcpkg = Join-Path $dependencies 'vcpkg-installed/x64-windows'
-$pa = Join-Path $dependencies 'portaudio-msvc-install'
+$vcpkgName = if ($PrivacyBuild) { 'vcpkg-privacy-installed/x64-windows' } else { 'vcpkg-installed/x64-windows' }
+$paName = if ($PrivacyBuild) { 'portaudio-privacy-install' } else { 'portaudio-msvc-install' }
+$vcpkg = Join-Path $dependencies $vcpkgName
+$pa = Join-Path $dependencies $paName
 $spout = Join-Path $dependencies 'spout2-msvc-install'
 $omt = Join-Path $dependencies 'omt-v1.0.0.16'
 $qtSource = Join-Path $dependencies 'qt-source'
@@ -27,7 +30,8 @@ $srtPort = Join-Path $dependencies 'vcpkg-src/ports/libsrt'
 $srtBuild = Join-Path $dependencies 'vcpkg-src/buildtrees/libsrt/x64-windows-rel'
 $vcpkgRevision = '9e593bb18ea69cc5095e012465dcd675a822ed0d'
 $cache = Join-Path $build 'CMakeCache.txt'
-$paCache = Join-Path $dependencies 'portaudio-msvc-build/CMakeCache.txt'
+$paBuildName = if ($PrivacyBuild) { 'portaudio-privacy-build/CMakeCache.txt' } else { 'portaudio-msvc-build/CMakeCache.txt' }
+$paCache = Join-Path $dependencies $paBuildName
 if (-not (Test-Path -LiteralPath $cache) -or
     -not (Select-String -LiteralPath $cache -Pattern '^CMAKE_BUILD_TYPE:STRING=Release$' -Quiet)) {
     throw 'Release media build is missing. Run scripts/build-media-release-msvc.cmd first.'
@@ -36,6 +40,16 @@ if (-not (Test-Path -LiteralPath $paCache) -or
     -not (Select-String -LiteralPath $paCache -Pattern '^PA_USE_ASIO:BOOL=OFF$' -Quiet) -or
     -not (Select-String -LiteralPath $paCache -Pattern '^PA_USE_WASAPI:BOOL=ON$' -Quiet)) {
     throw 'The PortAudio dependency is not the verified WASAPI-only build.'
+}
+if ($PrivacyBuild) {
+    $prefixMatch = Select-String -LiteralPath $cache -Pattern '^CMAKE_PREFIX_PATH:' |
+        Select-Object -First 1
+    $prefix = if ($prefixMatch) { $prefixMatch.Line.Replace('\', '/') } else { '' }
+    if (-not $prefix.Contains($vcpkg.Replace('\', '/')) -or
+        -not $prefix.Contains($pa.Replace('\', '/'))) {
+        throw 'The Release media build does not use the privacy dependency set.'
+    }
+    & (Join-Path $PSScriptRoot 'check-privacy-deps.ps1') | Out-Host
 }
 if (-not (Test-Path -LiteralPath $qtSourceArchive) -or
     (Get-FileHash -LiteralPath $qtSourceArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $qtSourceSha256) {
@@ -92,7 +106,8 @@ if ($srtPatches.Count -ne 3) { throw 'The libsrt port patch list has changed.' }
 
 $stageRoot = Join-Path $repo 'build/stage'
 New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
-$stage = Join-Path $stageRoot ('ROOD-Windows-x64-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
+$stageKind = if ($PrivacyBuild) { 'ROOD-Windows-x64-privacy-' } else { 'ROOD-Windows-x64-' }
+$stage = Join-Path $stageRoot ($stageKind + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 if (Test-Path -LiteralPath $stage) { throw "Stage directory already exists: $stage" }
 New-Item -ItemType Directory -Path $stage | Out-Null
 
@@ -134,14 +149,23 @@ $files = @(
     @{ Source = $ffmpegArchive; Target = 'source/FFmpeg/ffmpeg-n8.1.2.tar.gz'; Component = 'FFmpeg 8.1.2 source' }
     @{ Source = $ffmpegPortfile; Target = 'source/FFmpeg/vcpkg-portfile.cmake'; Component = 'FFmpeg 8.1.2 source' }
     @{ Source = (Join-Path $repo 'vcpkg.json'); Target = 'source/FFmpeg/rood-vcpkg.json'; Component = 'FFmpeg 8.1.2 source' }
-    @{ Source = (Join-Path $ffmpegBuild 'ffbuild/config.sh'); Target = 'source/FFmpeg/ffbuild-config.sh'; Component = 'FFmpeg 8.1.2 build'; RedactProfile = $true }
-    @{ Source = (Join-Path $ffmpegBuild 'ffbuild/config.mak'); Target = 'source/FFmpeg/ffbuild-config.mak'; Component = 'FFmpeg 8.1.2 build'; RedactProfile = $true }
-    @{ Source = (Join-Path $ffmpegBuild 'config.h'); Target = 'source/FFmpeg/config.h'; Component = 'FFmpeg 8.1.2 build'; RedactProfile = $true }
     @{ Source = $srtArchive; Target = 'source/libsrt/srt-v1.5.6.tar.gz'; Component = 'libsrt 1.5.6 source' }
     @{ Source = $srtPortfile; Target = 'source/libsrt/vcpkg-portfile.cmake'; Component = 'libsrt 1.5.6 source' }
     @{ Source = (Join-Path $repo 'vcpkg.json'); Target = 'source/libsrt/rood-vcpkg.json'; Component = 'libsrt 1.5.6 source' }
-    @{ Source = (Join-Path $srtBuild 'CMakeCache.txt'); Target = 'source/libsrt/CMakeCache.txt'; Component = 'libsrt 1.5.6 build'; RedactProfile = $true }
 )
+if ($PrivacyBuild) {
+    $files += @(
+        @{ Source = (Join-Path $dependencies 'vcpkg-privacy-buildtrees/ffmpeg/build-x64-windows-rel-config.log'); Target = 'source/FFmpeg/configure-record.log'; Component = 'FFmpeg 8.1.2 build'; RedactProfile = $true }
+        @{ Source = (Join-Path $dependencies 'vcpkg-privacy-buildtrees/libsrt/config-x64-windows-rel-CMakeCache.txt.log'); Target = 'source/libsrt/CMakeCache.txt.log'; Component = 'libsrt 1.5.6 build'; RedactProfile = $true }
+    )
+} else {
+    $files += @(
+        @{ Source = (Join-Path $ffmpegBuild 'ffbuild/config.sh'); Target = 'source/FFmpeg/ffbuild-config.sh'; Component = 'FFmpeg 8.1.2 build'; RedactProfile = $true }
+        @{ Source = (Join-Path $ffmpegBuild 'ffbuild/config.mak'); Target = 'source/FFmpeg/ffbuild-config.mak'; Component = 'FFmpeg 8.1.2 build'; RedactProfile = $true }
+        @{ Source = (Join-Path $ffmpegBuild 'config.h'); Target = 'source/FFmpeg/config.h'; Component = 'FFmpeg 8.1.2 build'; RedactProfile = $true }
+        @{ Source = (Join-Path $srtBuild 'CMakeCache.txt'); Target = 'source/libsrt/CMakeCache.txt'; Component = 'libsrt 1.5.6 build'; RedactProfile = $true }
+    )
+}
 foreach ($patch in $ffmpegPatches) {
     $files += @{
         Source = (Join-Path $ffmpegPort $patch)
@@ -171,6 +195,7 @@ if ([string]::IsNullOrWhiteSpace($profilePath)) {
 $profileVariants = @($profilePath.Replace('\', '\\'),
                      $profilePath.Replace('\', '/'), $profilePath) | Select-Object -Unique
 $profilePlaceholder = '<LOCAL_USER_PROFILE>'
+$genericHomePattern = '(?i)(?:[A-Z]:[\\/]+(?:Users|Documents and Settings)[\\/]+|/Users/|/home/)[^\\/\x00\s"'';]+'
 $entries = foreach ($file in $files) {
     if (-not (Test-Path -LiteralPath $file.Source -PathType Leaf)) {
         throw "A required staging file is missing: $($file.Source)"
@@ -185,6 +210,7 @@ $entries = foreach ($file in $files) {
                                      $profilePlaceholder,
                                      [Text.RegularExpressions.RegexOptions]::IgnoreCase)
         }
+        $text = [regex]::Replace($text, $genericHomePattern, '<BUILD_USER_HOME>')
         Set-Content -LiteralPath $destination -Value $text -Encoding utf8 -NoNewline
         foreach ($variant in $profileVariants) {
             if ([regex]::IsMatch($text, [regex]::Escape($variant),
@@ -314,7 +340,7 @@ $gitDirty = [bool](@(& git -C $repo status --porcelain).Count)
 if ($LASTEXITCODE -ne 0) { throw 'Could not read the ROOD working tree status.' }
 $manifest = [ordered]@{
     project = 'ROOD'
-    profile = 'windows-msvc-media-release'
+    profile = if ($PrivacyBuild) { 'windows-msvc-media-privacy' } else { 'windows-msvc-media-release' }
     gitCommit = $commit
     gitDirty = $gitDirty
     qtSourceUrl = $qtSourceUrl
@@ -365,11 +391,10 @@ Before public distribution:
 - Review PRIVACY-AUDIT.json before sharing any staged files. The uncompressed
   file scan found $localPathCount files containing this PC's user-profile path and
   $credentialCount files matching credential patterns. It records filenames only;
-  compressed archives were skipped. FFmpeg and libsrt build metadata use
-  <LOCAL_USER_PROFILE> in place of this PC's absolute user path; substitute a
-  local path when reproducing those build settings. Rebuild or sanitize the
-  remaining affected files and recheck the actual distribution set before
-  publishing binaries or build data.
+  compressed archives were skipped. FFmpeg and libsrt build metadata are
+  redacted when they contain this PC's user path. Recheck the actual
+  distribution set before publishing binaries or build data. PDB files are
+  not staged and require a separate audit if they are distributed.
 - Verify the required Microsoft Visual C++ runtime on a clean Windows machine.
 - Complete hardware ASIO, physical AV timing and active device-removal testing.
 

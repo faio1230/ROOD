@@ -15,10 +15,13 @@ if (-not $output.StartsWith($stage + [IO.Path]::DirectorySeparatorChar,
 $archiveExtensions = @('.7z', '.gz', '.xz', '.zip', '.tar')
 $pathPattern = '(?i)(?:[A-Z]:[\\/]+(?:Users|Documents and Settings)[\\/]+[^\\/\x00\s"'';]+|/Users/[^/\x00\s"'';]+|/home/[^/\x00\s"'';]+)'
 $profile = [Environment]::GetFolderPath('UserProfile')
+$profileName = Split-Path -Leaf $profile
 $localPathPattern = '(?i)(?:' + ((@(
     $profile
     $profile.Replace('\', '/')
     $profile.Replace('\', '\\')
+    "/Users/$profileName"
+    "/home/$profileName"
 ) | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')'
 $credentialPattern = '(?<![A-Za-z0-9_-])(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]+PRIVATE KEY-----|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{15,}|AIza[0-9A-Za-z_-]{30,})'
 $singleByte = [Text.Encoding]::GetEncoding(28591)
