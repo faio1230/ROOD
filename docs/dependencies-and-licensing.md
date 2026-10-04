@@ -20,6 +20,8 @@ FFmpeg公式の[法務・ライセンス案内](https://ffmpeg.org/legal.html)�
 
 `rood_deps_probe` は実際のFFmpeg DLLからライセンス文字列と構成を読み取り、GPL／nonfreeの有効化を検出した場合に失敗します。libsrt・Spout2・OMTのシンボルも同じMSVCプログラムでリンク確認しました。公開前には各依存のライセンス文書・DLL・ソース提供要件を配布物に合わせて整理します。
 
+`scripts/verify-clean-build-msvc.cmd` は既存のCMakeビルドディレクトリを再利用せず、固定済みのローカル依存からWASAPI専用Release構成を新規生成します。全ターゲットのビルド、CTest、`rood_deps_probe`、PortAudioにASIOデバイスが現れないことの確認を実行して合格しました。この確認はソースからの再構成を示しますが、依存ライブラリを未導入のWindows機での取得・構築やVCランタイムの配布条件を検証したものではありません。
+
 Qtはモジュールごとにライセンスが異なります。Qt Widgetsの[ライセンス案内](https://doc.qt.io/qt-6/qtwidgets-index.html)と[Qt全体の案内](https://doc.qt.io/qt-6/licensing.html)を、実際に選ぶ版の配布物に対して再確認します。LGPL構成では動的リンクを第一候補にします。
 
 Qt 6.10の[Windows対応表](https://doc.qt.io/qt-6.10/windows.html)はMSVC 2022を列挙しています。ここではMSVC 2026のBuild Toolsを使います。[Microsoftのバイナリ互換性の説明](https://learn.microsoft.com/en-us/cpp/porting/binary-compat-2015-2017)を根拠にこの組み合わせを試し、ローカルでGUIのビルドと起動を確認しました。
