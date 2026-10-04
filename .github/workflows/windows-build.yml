@@ -114,3 +114,11 @@ jobs:
               Select-Object -Last 30
             throw
           }
+      - name: Verify all eight routed audio channels
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          ./scripts/test-srt-eight-channel-map.ps1 `
+            -FfmpegPath ./build/deps/ffmpeg-test-cli/ffmpeg.exe `
+            -ReceiverExe ./build/msvc-media-release/rood_ingest.exe `
+            -LogName ci-srt-eight-channel-map

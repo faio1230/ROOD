@@ -32,11 +32,23 @@ std::vector<int> parseChannels(const char* text, int channelCount) {
     return channels;
 }
 
+std::vector<int> parseTones(const char* text, std::size_t channelCount) {
+    std::vector<int> tones;
+    std::stringstream input(text);
+    std::string item;
+    while (std::getline(input, item, ',')) {
+        const int frequency = parseInt(item.c_str(), 1, 20000);
+        if (frequency < 0) return {};
+        tones.push_back(frequency);
+    }
+    return tones.size() == channelCount ? tones : std::vector<int>{};
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc < 2 || argc > 5) {
-        std::cerr << "usage: rood_omt_probe ADDRESS [SECONDS] [CHANNELS] [SIGNAL_CHANNELS_CSV]\n";
+    if (argc < 2 || argc > 6) {
+        std::cerr << "usage: rood_omt_probe ADDRESS [SECONDS] [CHANNELS] [SIGNAL_CHANNELS_CSV] [TONE_HZ_CSV]\n";
         return 2;
     }
     const int seconds = argc >= 3 ? parseInt(argv[2], 1, 600) : 15;
@@ -46,6 +58,9 @@ int main(int argc, char** argv) {
         ? parseChannels(argv[4], expectedChannels)
         : (expectedChannels == 1 ? std::vector<int>{0} : std::vector<int>{0, 1});
     if (signalChannels.empty()) return 2;
+    const auto tones = argc >= 6 ? parseTones(argv[5], signalChannels.size())
+                                 : std::vector<int>{};
+    if (argc >= 6 && tones.empty()) return 2;
     for (const int channel : signalChannels)
         if (channel >= expectedChannels) return 2;
     const auto both = static_cast<OMTFrameType>(OMTFrameType_Video | OMTFrameType_Audio);
@@ -64,6 +79,8 @@ int main(int argc, char** argv) {
     double audioSampleSum = 0.0;
     double secondChannelSampleSum = 0.0;
     std::vector<double> signalChannelSums(signalChannels.size(), 0.0);
+    std::vector<double> expectedTonePower(tones.size(), 0.0);
+    std::vector<double> otherTonePower(tones.size(), 0.0);
     std::int64_t firstVideoTimestamp = -1;
     std::int64_t firstAudioTimestamp = -1;
     std::int64_t lastVideoTimestamp = -1;
@@ -113,6 +130,35 @@ int main(int argc, char** argv) {
                     signalChannelSums[channel] += std::fabs(
                         samples[signalChannels[channel] * frame->SamplesPerChannel + i]);
             }
+            // The optional tone check verifies the mapping, not just that each
+            // destination contains some non-silent audio. Sample every fourth
+            // input sample to keep the independent receiver probe inexpensive.
+            if (!tones.empty()) {
+                constexpr double tau = 6.2831853071795864769;
+                const int stride = 4;
+                const double normalization =
+                    1.0 / std::ceil(frame->SamplesPerChannel / static_cast<double>(stride));
+                for (std::size_t channel = 0; channel < tones.size(); ++channel) {
+                    const auto* source = samples + signalChannels[channel] * frame->SamplesPerChannel;
+                    double expected = 0.0;
+                    double strongestOther = 0.0;
+                    for (std::size_t tone = 0; tone < tones.size(); ++tone) {
+                        double real = 0.0;
+                        double imaginary = 0.0;
+                        for (int sample = 0; sample < frame->SamplesPerChannel; sample += stride) {
+                            const double phase = tau * tones[tone] * sample / frame->SampleRate;
+                            real += source[sample] * std::cos(phase);
+                            imaginary += source[sample] * std::sin(phase);
+                        }
+                        const double power = (real * real + imaginary * imaginary) *
+                                             normalization * normalization;
+                        if (tone == channel) expected = power;
+                        else strongestOther = std::max(strongestOther, power);
+                    }
+                    expectedTonePower[channel] += expected;
+                    otherTonePower[channel] += strongestOther;
+                }
+            }
         }
     }
     omt_receive_destroy(receiver);
@@ -137,8 +183,21 @@ int main(int argc, char** argv) {
         allSignalsPresent &= signalChannelSums[index] > 0.0;
     }
     std::cout << std::endl;
+    bool tonesCorrect = true;
+    if (!tones.empty()) {
+        std::cout << "omtProbe tonePowerRatios=";
+        for (std::size_t channel = 0; channel < tones.size(); ++channel) {
+            if (channel) std::cout << ',';
+            const double ratio = expectedTonePower[channel] /
+                std::max(otherTonePower[channel], 1e-12);
+            std::cout << signalChannels[channel] << ':' << tones[channel] << ':' << ratio;
+            tonesCorrect &= expectedTonePower[channel] > 1e-5 && ratio > 4.0;
+        }
+        std::cout << std::endl;
+    }
     return videoFrames > 0 && audioFrames > 0 && channels == expectedChannels &&
            pixelSampleSum > 0 && allSignalsPresent &&
+           tonesCorrect &&
            firstVideoTimestamp > 0 && firstAudioTimestamp > 0 &&
            videoTimestampRegressions == 0 && audioTimestampRegressions == 0 ? 0 : 1;
 }

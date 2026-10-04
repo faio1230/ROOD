@@ -22,6 +22,8 @@ param(
     [int]$OmtDelayMs = 250,
     [string[]]$OmtRoutes = @('257:0:0', '258:5:1'),
     [string]$OmtSignalChannels = '0,1',
+    [string]$OmtToneHz = '',
+    [switch]$DistinctAudioTones,
     [int]$OmtProbeSeconds = 16,
     [switch]$RequireOmtClockSync,
     [int]$FirstSeconds = 5,
@@ -70,6 +72,9 @@ if ($OmtName -and ($OmtChannels -lt 1 -or $OmtChannels -gt 32 -or
                    $OmtProbeSeconds -lt 1 -or $OmtProbeSeconds -gt 600 -or
                    $OmtProbeSeconds -gt $ReceiverSeconds)) {
     throw 'OMT requires 1-32 channels, a route, signal channels and a probe duration within receiver time.'
+}
+if ($OmtToneHz -and -not $OmtName) {
+    throw 'OmtToneHz requires an OMT sender.'
 }
 if ($RequireOmtClockSync -and (-not $OmtName -or
     ($AudioDevice -lt 0 -and -not $AudioDeviceId) -or
@@ -174,18 +179,26 @@ try {
         $omtProbeStdout = Join-Path $logDir 'omt-probe.stdout.txt'
         $omtProbeStderr = Join-Path $logDir 'omt-probe.stderr.txt'
         Remove-Item -LiteralPath $omtProbeStdout, $omtProbeStderr -ErrorAction SilentlyContinue
+        $probeArguments = @("`"$omtAddress`"", "$OmtProbeSeconds", "$OmtChannels", $OmtSignalChannels)
+        if ($OmtToneHz) { $probeArguments += $OmtToneHz }
         $omtProbe = Start-Process -FilePath $probeExe `
-            -ArgumentList @("`"$omtAddress`"", "$OmtProbeSeconds", "$OmtChannels", $OmtSignalChannels) `
+            -ArgumentList $probeArguments `
             -RedirectStandardOutput $omtProbeStdout -RedirectStandardError $omtProbeStderr `
             -WindowStyle Hidden -PassThru
     }
     Start-Sleep -Milliseconds 250
 
+    $stereoInput = if ($DistinctAudioTones) {
+        'aevalsrc=0.15*sin(2*PI*300*t)|0.15*sin(2*PI*400*t):s=48000:channel_layout=stereo'
+    } else { 'sine=frequency=440:sample_rate=48000' }
+    $surroundInput = if ($DistinctAudioTones) {
+        'aevalsrc=0.15*sin(2*PI*500*t)|0.15*sin(2*PI*600*t)|0.15*sin(2*PI*700*t)|0.15*sin(2*PI*80*t)|0.15*sin(2*PI*900*t)|0.15*sin(2*PI*1000*t):s=48000:channel_layout=5.1'
+    } else { 'aevalsrc=0|0|0|0|0|0.15*sin(2*PI*330*t):s=48000:channel_layout=5.1' }
     $firstSender = @(
         '-hide_banner', '-loglevel', 'error',
         '-readrate', $senderRateText, '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=25',
-        '-readrate', $senderRateText, '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
-        '-readrate', $senderRateText, '-f', 'lavfi', '-i', 'aevalsrc=0|0|0|0|0|0.15*sin(2*PI*330*t):s=48000:channel_layout=5.1',
+        '-readrate', $senderRateText, '-f', 'lavfi', '-i', $stereoInput,
+        '-readrate', $senderRateText, '-f', 'lavfi', '-i', $surroundInput,
         '-t', "$FirstSeconds", '-map', '0:v:0', '-map', '1:a:0', '-map', '2:a:0',
         '-c:v', 'mpeg2video', '-threads:v', '1', '-g', '25', '-b:v', '1M',
         '-c:a:0', 'mp2', '-b:a:0', '192k', '-ac:a:0', '2',
