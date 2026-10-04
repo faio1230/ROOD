@@ -1,5 +1,13 @@
 param(
     [int]$AudioDevice = 12,
+    [int]$AudioRate = 48000,
+    [int]$AudioChannels = 2,
+    [string]$PortAudioBin = '',
+    [string]$AsioOnly = '',
+    [string]$OmtName = '',
+    [int]$OmtChannels = 2,
+    [int]$OmtProbeSeconds = 16,
+    [switch]$RequireOmtClockSync,
     [double]$SenderReadRate = 1.0003,
     [int]$FirstSeconds = 180,
     [string]$FfmpegPath = 'C:\Program Files\ffmpeg\bin\ffmpeg.exe',
@@ -10,7 +18,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-if ($AudioDevice -lt 0 -or $FirstSeconds -lt 120 -or $FirstSeconds -gt 3600 -or
+if ($AudioDevice -lt 0 -or $AudioRate -lt 8000 -or $AudioRate -gt 192000 -or
+    $AudioChannels -lt 1 -or $AudioChannels -gt 32 -or
+    $FirstSeconds -lt 120 -or $FirstSeconds -gt 3600 -or
     $LogName -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$' -or
     [double]::IsNaN($SenderReadRate) -or [double]::IsInfinity($SenderReadRate) -or
     [Math]::Abs($SenderReadRate - 1.0) -lt 0.0001 -or
@@ -21,11 +31,25 @@ if (-not $ReceiverExe) {
     $ReceiverExe = Join-Path $repo 'build/msvc-media-release/rood_ingest.exe'
 }
 if (-not $AnalyzeOnly) {
-    & (Join-Path $PSScriptRoot 'test-srt-loopback.ps1') `
-        -FfmpegPath $FfmpegPath -ReceiverExe $ReceiverExe -AudioDevice $AudioDevice `
-        -SpoutName "ROOD-$LogName" -FirstSeconds $FirstSeconds `
-        -ReceiverSeconds ($FirstSeconds + 12) -SenderReadRate $SenderReadRate `
-        -LogName $LogName
+    $loopback = @{
+        FfmpegPath = $FfmpegPath
+        ReceiverExe = $ReceiverExe
+        AudioDevice = $AudioDevice
+        AudioRate = $AudioRate
+        AudioChannels = $AudioChannels
+        PortAudioBin = $PortAudioBin
+        AsioOnly = $AsioOnly
+        SpoutName = "ROOD-$LogName"
+        OmtName = $OmtName
+        OmtChannels = $OmtChannels
+        OmtProbeSeconds = $OmtProbeSeconds
+        RequireOmtClockSync = $RequireOmtClockSync
+        FirstSeconds = $FirstSeconds
+        ReceiverSeconds = $FirstSeconds + 12
+        SenderReadRate = $SenderReadRate
+        LogName = $LogName
+    }
+    & (Join-Path $PSScriptRoot 'test-srt-loopback.ps1') @loopback
 }
 
 $logDir = Join-Path $repo "build/tests/$LogName"
@@ -95,7 +119,7 @@ if ([Math]::Abs($observedPpm - $expectedPpm) -gt 100 -or
     [Math]::Abs($finalErrorMs) -gt 50 -or $maxErrorMs -gt 50 -or
     $null -eq $maxSyncMs -or $maxSyncMs -gt 40 -or $underflows -ne 0 -or
     $rejectedFraction -gt 0.001 -or $droppedFraction -gt 0.001 -or
-    $failed -ne 0 -or $rendered -lt ($FirstSeconds * 48000 * 0.8) -or
+    $failed -ne 0 -or $rendered -lt ($FirstSeconds * $AudioRate * 0.8) -or
     $received -lt ($FirstSeconds * 25 * 0.8) -or
     (Read-Field $lastAudio 'driftLocked') -ne '1' -or
     $first -match 'callbackStalled=1|sampleClockMismatch=1') {
