@@ -22,6 +22,15 @@ FFmpeg公式の[法務・ライセンス案内](https://ffmpeg.org/legal.html)�
 
 `scripts/verify-clean-build-msvc.cmd` は既存のCMakeビルドディレクトリを再利用せず、固定済みのローカル依存からWASAPI専用Release構成を新規生成します。全ターゲットのビルド、CTest、`rood_deps_probe`、PortAudioにASIOデバイスが現れないことの確認を実行して合格しました。この確認はソースからの再構成を示しますが、依存ライブラリを未導入のWindows機での取得・構築やVCランタイムの配布条件を検証したものではありません。
 
+2026-10-04には公開済みGitHubリポジトリを同じWindows PCの別ディレクトリへ新規クローンし、固定済みスクリプトでQt、PortAudio、Spout2、OMT、vcpkg依存を取得・構築しました。Qtはハッシュ検証済みの公式バイナリ、OMTはハッシュ検証済みの公式配布物を使用し、PortAudioとSpout2はソースから構築しました。通常のvcpkg実行では10パッケージがバイナリキャッシュから復元されたため、次のコマンドをMSVC環境で追加実行し、vcpkgの10パッケージを別のインストール先へキャッシュなしで構築しました。
+
+```cmd
+call scripts\msvc-env.cmd
+build\deps\vcpkg-src\vcpkg.exe install --triplet x64-windows --x-install-root build\deps\vcpkg-source-only --binarysource=clear --clean-after-build --no-print-usage
+```
+
+FFmpeg 8.1.2、OpenSSL 3.6.3、libsrt 1.5.6を含む全10パッケージのインストールが成功し、FFmpegの構築ログと実行時表示はいずれも `LGPL version 2.1 or later` でした。このインストール先を指定したROODの新規ReleaseビルドでCTest 5件がすべて合格しました。ソースビルドしたDLLを実行ファイルのディレクトリへ置き、各DLLのSHA-256がインストール先と一致することを確認してSRTループバックを実施しました。映像、2chと5.1ch音声、WASAPI出力、Spout／OMT受信、送信側の切断後の再接続が合格し、OMT受信側の映像・音声タイムスタンプ逆行は0件でした。これは同一PCでの再現確認であり、別のWindows機への移植性や配布用DLLのパス情報除去は未確認です。
+
 Qtはモジュールごとにライセンスが異なります。Qt Widgetsの[ライセンス案内](https://doc.qt.io/qt-6/qtwidgets-index.html)と[Qt全体の案内](https://doc.qt.io/qt-6/licensing.html)を、実際に選ぶ版の配布物に対して再確認します。LGPL構成では動的リンクを第一候補にします。
 
 Qt 6.10の[Windows対応表](https://doc.qt.io/qt-6.10/windows.html)はMSVC 2022を列挙しています。ここではMSVC 2026のBuild Toolsを使います。[Microsoftのバイナリ互換性の説明](https://learn.microsoft.com/en-us/cpp/porting/binary-compat-2015-2017)を根拠にこの組み合わせを試し、ローカルでGUIのビルドと起動を確認しました。
