@@ -51,12 +51,16 @@ int main() {
     require(timeline.pull(1, clipped) == 1);
     require(clipped[0] == 1.0f && clipped[1] == 0.0f);
 
-    bool invalid = false;
-    try {
-        timeline.push(20, 1, 2, stereo, 1);
-    } catch (const std::invalid_argument&) {
-        invalid = true;
-    }
-    require(invalid);
+    // A stream may return with fewer channels after reconnecting. Keep the
+    // valid route and leave the unavailable source channel silent.
+    require(timeline.push(20, 1, 2, stereo, 1) == 1);
+    float reduced[2] = {};
+    require(timeline.pull(1, reduced) == 1);
+    require(near(reduced[0], 0.0f) && near(reduced[1], 0.2f));
+
+    rood::AudioTimeline unavailable(1, 8, {{21, 5, 0, 1.0f}});
+    require(unavailable.push(21, 0, 1, stereo, 1) == 0);
+    float silent = 1.0f;
+    require(unavailable.pull(1, &silent) == 0 && silent == 0.0f);
     return 0;
 }

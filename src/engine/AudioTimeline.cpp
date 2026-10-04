@@ -42,10 +42,8 @@ std::size_t AudioTimeline::push(std::uint32_t trackId, std::int64_t startFrame,
         throw std::invalid_argument("invalid audio timeline block");
     bool routed = false;
     for (const auto& route : routes_) {
-        if (route.track_id != trackId) continue;
-        routed = true;
-        if (route.source_channel >= sourceChannels)
-            throw std::invalid_argument("route source channel exceeds block channels");
+        if (route.track_id == trackId && route.source_channel < sourceChannels)
+            routed = true;
     }
     if (!routed) return 0;
 
@@ -65,7 +63,7 @@ std::size_t AudioTimeline::push(std::uint32_t trackId, std::int64_t startFrame,
             tags_[slot] = position;
         }
         for (const auto& route : routes_) {
-            if (route.track_id == trackId)
+            if (route.track_id == trackId && route.source_channel < sourceChannels)
                 destination[route.device_channel] +=
                     samples[frame * sourceChannels + route.source_channel] * route.gain;
         }

@@ -353,6 +353,10 @@ try {
             }
         }
     }
+    if ($OmtName -and (Test-Path -LiteralPath $stderr) -and
+        (Get-Content -LiteralPath $stderr -Raw) -match 'error OMT output:') {
+        throw "OMT output reported an error. See $stderr"
+    }
     if ($RequireOmtClockSync) {
         $firstOutput = $output.Substring(0, $output.IndexOf('state disconnected'))
         $omtLines = @([regex]::Matches($firstOutput, '(?m)^omt video=.+$') |

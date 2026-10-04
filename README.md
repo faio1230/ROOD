@@ -56,6 +56,8 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 
 GitHub Actionsの[`Windows source build`](https://github.com/faio1230/ROOD/actions/runs/37186234401)は、クリーンなWindowsランナーで固定版のQt 6とOMTのバイナリを取得し、PortAudio、Spout2、FFmpeg、libsrtをソースから構築しました。ROODのReleaseビルド、CTest 5件、依存診断まで合格し、FFmpeg DLLの実行時ライセンス表示は `LGPL version 2.1 or later` でした。さらにQtソースとライセンス本文を照合し、102ファイルの確認用フォルダーを作成して、依存診断・SRT待受・GUI起動のスモークテストを通しました。非圧縮ファイルの監査でランナーのユーザープロファイルパスと認証情報パターンは0件でした。これはバイナリ公開の承認ではなく、ASIO実機、物理出力時刻、開発ツールを入れていないWindows機でのVCランタイムは未検証です。
 
+続く[CI実行](https://github.com/faio1230/ROOD/actions/runs/37188689534)では、SHA-256で固定した検証専用FFmpeg CLIからSRTを送信し、映像・ステレオ・5.1音声のデコード、切断後の再接続、OMTの0番と31番の受信信号までクリーンなランナーで確認しました。
+
 公開前の依存ファイル確認には `./scripts/bootstrap-qt-source.ps1` の後で `./scripts/stage-windows-release.ps1` を使います。[Qt公式のqtbase 6.10.3ソース](https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz.mirrorlist)をSHA-256で照合し、ライセンス本文を取り出します。確認用フォルダーにはRelease版GUI・CLI、必要なDLL、ROODと第三者のライセンス文書、QtのSBOM・公式バイナリアーカイブ・ソースアーカイブ、FFmpeg 8.1.2とlibsrt 1.5.6のソース・vcpkgパッチ・Releaseビルド設定、ファイルのSHA-256一覧を集めます。QtのSBOMから関連する第三者パッケージ一覧も生成します。依存診断・PortAudioのASIO非列挙・SRT待受・GUI起動を最小限のPATHで確認します。**この確認用フォルダーは配布物ではありません。** Qtの第三者通知、クリーンなWindows機でのVCランタイム確認、依存DLLとビルド資料に残るローカルパスなどを `STAGING-STATUS.txt` に示します。`PRIVACY-AUDIT.json` には該当ファイル名だけを保存します。Qtの4つのDLLとSBOMは公式バイナリアーカイブ内のファイルと一致します。DLLの生SHA-1はSBOMと異なりますが、PE署名領域を除き署名位置とチェックサムをゼロに戻すと4つともSBOMと一致します。比較結果は `licenses/Qt-SBOM-CHECKSUM-AUDIT.json` に保存します。
 
 ローカルユーザーのビルドパスを含まない依存DLLを使う場合は `scripts/build-privacy-deps-msvc.cmd` で依存を構築し、`scripts/build-media-privacy-release-msvc.cmd` でROOD本体をビルドしてから `./scripts/stage-windows-release.ps1 -PrivacyBuild` を実行します。この経路もローカル確認用であり、公開可否はステージの `STAGING-STATUS.txt` で判断します。
@@ -96,7 +98,7 @@ GitHub Actionsの[`Windows source build`](https://github.com/faio1230/ROOD/actio
 
 送出速度差試験は、FFmpegで最初のSRT接続を3分間だけ公称速度から±300 ppmずらします。終盤の補正量、音声キューの誤差、Spoutとの推定時差と破棄数を自動判定します。同一PCの模擬試験なので、独立した送信機と音声デバイスによる長時間同期の検証は引き続き必要です。
 
-デコードスレッドはチャンネルを時刻付きの有界リングバッファに配置し、PortAudioコールバックは用意済みのfloat32 PCMを読むだけです。キュー競合、入力不足、未着トラックは無音になります。診断出力の `renderedFrames` はコールバックがメディアの入ったフレーム位置を読んだ数で、実際の物理出力を測定した値ではありません。
+デコードスレッドはチャンネルを時刻付きの有界リングバッファに配置し、PortAudioコールバックは用意済みのfloat32 PCMを読むだけです。キュー競合、入力不足、未着トラックと、再接続後に入力から消えたチャンネルの経路は無音になります。診断出力の `renderedFrames` はコールバックがメディアの入ったフレーム位置を読んだ数で、実際の物理出力を測定した値ではありません。
 
 長時間のクロック差補正では、音声キューの先行量を開始後5秒で基準化し、その後の変化から最大±500 ppmの緩やかなリサンプル補正を行います。GUIとCLIに補正量を表示します。1時間の同一PC内ループバックでは内部時差を維持しました。別の送信機・音声機器を使う試験と物理出力の時差測定は未実施です。
 
