@@ -307,6 +307,7 @@ public:
             QString description = QStringLiteral(
                 "ROOD %1\nStudio Sandix 開発コード\n\n"
                 "SRT受信・Spout2／OMT分配・PortAudio音声出力\n\n"
+                "ROOD自作部分: MIT License\n"
                 "このソフトウェアはFFmpegプロジェクトのライブラリを"
                 "LGPL v2.1以降の条件で使用しています。\n"
                 "Qt、libsrt、PortAudio、Spout2、OMTなどの第三者ソフトウェアも使用しています。")

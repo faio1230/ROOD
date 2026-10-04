@@ -24,13 +24,13 @@ Qtはモジュールごとにライセンスが異なります。Qt Widgetsの[�
 
 Qt 6.10の[Windows対応表](https://doc.qt.io/qt-6.10/windows.html)はMSVC 2022を列挙しています。ここではMSVC 2026のBuild Toolsを使います。[Microsoftのバイナリ互換性の説明](https://learn.microsoft.com/en-us/cpp/porting/binary-compat-2015-2017)を根拠にこの組み合わせを試し、ローカルでGUIのビルドと起動を確認しました。
 
-SteinbergはASIO SDKについて[オープンソース版とプロプライエタリ版](https://www.steinberg.net/developers/)を案内しています。取得した2.3.4の `LICENSE.txt` にはGPLv3またはSteinberg独自ライセンスの選択肢が記されています。自作部分をMITにしても、ASIO対応バイナリ全体をMITだけの条件で配布できると想定しません。SDK現物の条項とPortAudioの結合形態を確認してから、公開ライセンスと配布方式を決めます。
+SteinbergはASIO SDKについて[オープンソース版とプロプライエタリ版](https://www.steinberg.net/developers/)を案内しています。取得した2.3.4の `LICENSE.txt` にはGPLv3またはSteinberg独自ライセンスの選択肢が記されています。ROOD自作部分をMITにしても、ASIO対応バイナリ全体をMITだけの条件で配布できると想定しません。SDK現物の条項とPortAudioの結合形態を確認してから、ASIO対応バイナリの配布方式を決めます。
 
-自作コードのMITライセンスは候補のままで、まだLICENSEファイルやGitHub公開設定を作っていません。
+ROOD自作部分は[MITライセンス](../LICENSE)で公開します。GitHubリポジトリにはソースコードだけを置き、Steinberg ASIO SDKや依存DLL、Windows実行バイナリは含めません。
 
 ## 配布構成の候補
 
-現状の `windows-msvc-media-dev` はWASAPI専用のPortAudio DLLを使い、Steinberg ASIO SDKを含みません。自作コードをMITにする場合、この構成を最初の公開候補にします。ただし、MITはROOD自作コードの条件であり、同梱DLLの条件を置き換えるものではありません。実際に配布するファイルを確定して、各ライセンスの義務を満たしてから公開します。
+現状の `windows-msvc-media-dev` はWASAPI専用のPortAudio DLLを使い、Steinberg ASIO SDKを含みません。この構成を将来のWindows実行バイナリ配布の候補にします。ただし、MITはROOD自作コードの条件であり、同梱DLLの条件を置き換えるものではありません。実際に配布するファイルを確定して、各ライセンスの義務を満たしてからバイナリを公開します。
 
 `windows-msvc-media-asio-test` はSDK 2.3.4を使うローカル検証用です。取得したSDKの `LICENSE.txt` はGPLv3とSteinberg独自ライセンスを選択肢として記載し、独自ライセンスでの公開にはSteinbergが署名した契約書を求めています。ASIO対応バイナリを出す場合は、GPLv3に沿う配布構成を整えるか、Steinbergとの契約を取得するかを先に決めます。どちらの場合もSDK内の各ファイルにある個別のライセンス表示を確認します。現時点でASIO検証版を配布物に転用しません。
 
@@ -42,7 +42,7 @@ SBOMでライセンス結論がない1件は `WrapAtomic` です。SBOMでは `W
 
 | 対象 | 現在の確認結果 | 公開前に実施すること |
 | --- | --- | --- |
-| ROOD自作コード | ライセンス未決定、MITが候補 | 権利者とライセンスを決め、`LICENSE` と著作権表示を追加する |
+| ROOD自作コード | MITライセンス、`LICENSE` にStudio Sandixの著作権表示を記載 | ソース公開に適用。外部ライブラリの条件は各ライセンスで別途確認する |
 | Qt 6.10.3 `Core` / `Gui` / `Widgets` | 動的ライブラリでリンク。Qt 6.10はLGPLv3でのアプリ開発を案内する | 同梱するQt DLL・プラグインを列挙し、各モジュールとQt内の第三者コードの通知、利用者が互換DLLへ差し替えられる構成、対応ソースを確認する |
 | FFmpeg 8.1.2 | 実行時ライセンス表示は `LGPL version 2.1 or later`。GPL／nonfree機能なし | 配布DLLと一致するソース、vcpkgパッチ、configure/build設定を保存して提供する。ダウンロードページとアプリのAbout表示にFFmpegとソース入手先を明記する |
 | libsrt 1.5.6 | [MPL-2.0](https://github.com/Haivision/srt/blob/v1.5.6/LICENSE)、共有DLL | ライセンス・著作権表示、配布DLLと一致するソース・パッチ・ビルド設定を確認し、ソース入手先を利用者へ知らせる。確認用フォルダーには該当ファイルを保存済み |

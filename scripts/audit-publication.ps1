@@ -41,7 +41,7 @@ try {
     }
 
     $patterns = [ordered]@{
-        machinePath = '([A-Za-z]:[\\/]+Users[\\/]+|/Users/[^/[:space:]]+|/home/[^/[:space:]]+|\\\\[A-Za-z0-9._-]+\\[A-Za-z0-9._-]+)'
+        machinePath = '([A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9._-]+|/Users/[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+|\\\\[A-Za-z0-9._-]+\\[A-Za-z0-9._-]+)'
         email = '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
         credential = '(gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]+PRIVATE KEY-----|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{15,}|AIza[0-9A-Za-z_-]{30,})'
         urlCredential = 'https?://[^/[:space:]]+:[^@/[:space:]]+@'

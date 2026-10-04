@@ -97,6 +97,7 @@ if (Test-Path -LiteralPath $stage) { throw "Stage directory already exists: $sta
 New-Item -ItemType Directory -Path $stage | Out-Null
 
 $files = @(
+    @{ Source = (Join-Path $repo 'LICENSE'); Target = 'LICENSE'; Component = 'ROOD' }
     @{ Source = (Join-Path $repo 'docs/third-party-notices.md'); Target = 'THIRD-PARTY-NOTICES.md'; Component = 'Third-party notices' }
     @{ Source = (Join-Path $build 'rood_gui.exe'); Target = 'rood_gui.exe'; Component = 'ROOD' }
     @{ Source = (Join-Path $build 'rood_ingest.exe'); Target = 'rood_ingest.exe'; Component = 'ROOD' }
@@ -303,9 +304,9 @@ ROOD Windows x64 staging audit — NOT READY FOR PUBLIC DISTRIBUTION
 
 This directory is a local dependency and startup check. It uses the WASAPI-only
 PortAudio build and contains no Steinberg ASIO SDK or ASIO-enabled binary.
+The ROOD-owned code license is MIT and is included as LICENSE.
 
 Before public distribution:
-- Decide and add the license and copyright notice for ROOD-owned code.
 - Review the bundled Qt license texts and binary/source SBOMs against the DLLs.
   The verified qtbase 6.10.3 source archive and matching SBOM commit are
   recorded in licenses/Qt-SOURCE-REFERENCE.txt; confirm the public source

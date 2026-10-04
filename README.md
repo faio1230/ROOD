@@ -4,6 +4,8 @@ ROODは、SRTの受信・分配・接続状況の監視に特化したWindowsア
 
 このリポジトリは開発中のソースコードを公開するものです。Windows実行バイナリとSteinberg ASIO SDKは含めません。実行バイナリの配布は第三者ライセンスと実機検証の残項目を完了してから判断します。
 
+ROOD自作部分のライセンスは[MIT](LICENSE)です。外部ライブラリにはそれぞれのライセンスが適用されます。
+
 GitHubへのpush前には `./scripts/audit-publication.ps1` で全コミットのnoreplyメール、追跡履歴のローカルパス・認証情報の典型的な形式、ビルド成果物の混入を検査します。この作業リポジトリでは `git config core.hooksPath .githooks` を設定すると、同じ検査をpush前に実行できます。
 
 ## 現在できること
@@ -48,7 +50,7 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 
 最適化したWASAPI版の確認には `./scripts/build-media-release-msvc.cmd` を使います。Debug版とは別の `build/msvc-media-release` に出力し、同じ固定済み依存でビルドとCTestを実行します。起動は `./scripts/run-gui-release-msvc.cmd` です。ASIO SDKはこの構成に入りません。
 
-公開前の依存ファイル確認には `./scripts/bootstrap-qt-source.ps1` の後で `./scripts/stage-windows-release.ps1` を使います。[Qt公式のqtbase 6.10.3ソース](https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz.mirrorlist)をSHA-256で照合し、ライセンス本文を取り出します。確認用フォルダーにはRelease版GUI・CLI、必要なDLL、第三者ライセンス文書、QtのSBOM・公式バイナリアーカイブ・ソースアーカイブ、FFmpeg 8.1.2とlibsrt 1.5.6のソース・vcpkgパッチ・Releaseビルド設定、ファイルのSHA-256一覧を集めます。QtのSBOMから関連する第三者パッケージ一覧も生成します。依存診断・PortAudioのASIO非列挙・SRT待受・GUI起動を最小限のPATHで確認します。**この確認用フォルダーは配布物ではありません。** 自作コードのライセンス、Qtの第三者通知、クリーンなWindows機でのVCランタイム確認など、残る項目はフォルダー内の `STAGING-STATUS.txt` に示します。Qtの4つのDLLとSBOMは公式バイナリアーカイブ内のファイルと一致します。DLLの生SHA-1はSBOMと異なりますが、PE署名領域を除き署名位置とチェックサムをゼロに戻すと4つともSBOMと一致します。比較結果は `licenses/Qt-SBOM-CHECKSUM-AUDIT.json` に保存します。
+公開前の依存ファイル確認には `./scripts/bootstrap-qt-source.ps1` の後で `./scripts/stage-windows-release.ps1` を使います。[Qt公式のqtbase 6.10.3ソース](https://download.qt.io/archive/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz.mirrorlist)をSHA-256で照合し、ライセンス本文を取り出します。確認用フォルダーにはRelease版GUI・CLI、必要なDLL、ROODと第三者のライセンス文書、QtのSBOM・公式バイナリアーカイブ・ソースアーカイブ、FFmpeg 8.1.2とlibsrt 1.5.6のソース・vcpkgパッチ・Releaseビルド設定、ファイルのSHA-256一覧を集めます。QtのSBOMから関連する第三者パッケージ一覧も生成します。依存診断・PortAudioのASIO非列挙・SRT待受・GUI起動を最小限のPATHで確認します。**この確認用フォルダーは配布物ではありません。** Qtの第三者通知、クリーンなWindows機でのVCランタイム確認など、残る項目はフォルダー内の `STAGING-STATUS.txt` に示します。Qtの4つのDLLとSBOMは公式バイナリアーカイブ内のファイルと一致します。DLLの生SHA-1はSBOMと異なりますが、PE署名領域を除き署名位置とチェックサムをゼロに戻すと4つともSBOMと一致します。比較結果は `licenses/Qt-SBOM-CHECKSUM-AUDIT.json` に保存します。
 
 `vcpkg.json` はlibsrt 1.5.6とFFmpeg 8.1.2の共有ライブラリ構成を固定します。FFmpegは `avcodec`、`avformat`、`swresample`、`swscale` のみを指定し、GPL／nonfreeの追加機能を選びません。Spout2は2.007.017のソースを固定してMSVCで構築し、OMTはv1.0.0.16の公式Windows x64配布物をSHA-256で確認します。Spout2とOMTの出力は開発用CLIから利用できます。
 
@@ -197,4 +199,4 @@ ASIOドライバ名、デバイス番号、サンプルレートは実機に合�
 - [PortAudio実機検証計画](docs/portaudio-validation.md)
 - [依存関係・公開ライセンスの確認事項](docs/dependencies-and-licensing.md)
 
-自作コードのライセンスは未決定です。現時点でライセンスファイルを付けていません。
+ROOD自作部分はMITライセンスで公開します。実行バイナリの配布条件は[依存関係の確認事項](docs/dependencies-and-licensing.md)に記載しています。
