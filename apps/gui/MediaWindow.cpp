@@ -669,7 +669,8 @@ private:
             text += QStringLiteral("\n音声出力  callback %1  再生フレーム %2\n"
                                    "underflow %3  破棄 %4  稼働 %5\n"
                                    "クロック補正 %6 ppm  誤差 %7 ms  安定 %8\n"
-                                   "デバイス %9  再試行 %10  復帰 %11  停止検出 %12\n")
+                                   "デバイス %9  再試行 %10  復帰 %11  停止検出 %12\n"
+                                   "入力PTS不連続 %13  クロック再初期化 %14\n")
                 .arg(snapshot.audio.callbackCount)
                 .arg(snapshot.audio.renderedFrames)
                 .arg(snapshot.audio.deviceUnderflows)
@@ -681,7 +682,9 @@ private:
                 .arg(snapshot.audio.deviceAvailable ? QStringLiteral("利用可能") : QStringLiteral("待機中"))
                 .arg(snapshot.audio.reopenAttempts)
                 .arg(snapshot.audio.recoveries)
-                .arg(snapshot.audio.streamFailures);
+                .arg(snapshot.audio.streamFailures)
+                .arg(snapshot.audio.inputPtsDiscontinuities)
+                .arg(snapshot.audio.clockResets);
         if (snapshot.hasAudio && snapshot.audio.observedSampleRate > 0)
             text += QStringLiteral("実測コールバック速度: %1 frames/s  申告レートとの差: %2\n")
                 .arg(snapshot.audio.observedSampleRate, 0, 'f', 0)

@@ -1,5 +1,6 @@
 #include "rood/PortAudioOutput.hpp"
 
+#include "rood/AudioPtsContinuity.hpp"
 #include "rood/AudioTimeline.hpp"
 #include "rood/ClockRecovery.hpp"
 #include "rood/MediaReceiver.hpp"
@@ -30,6 +31,7 @@ extern "C" {
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -123,6 +125,7 @@ public:
         inputRate_ = frame.sample_rate;
         inputFormat_ = inputFormat;
         hasNextFrame_ = false;
+        ptsContinuity_.reset();
     }
 
     int convert(const AVFrame& frame, std::vector<float>& output) {
@@ -150,6 +153,10 @@ public:
     std::int64_t nextFrame() const { return nextFrame_; }
     bool hasNextFrame() const { return hasNextFrame_; }
     void setNextFrame(std::int64_t position) { nextFrame_ = position; hasNextFrame_ = true; }
+    std::optional<double> inputPtsGap(const std::optional<double>& mediaSeconds,
+                                      const AVFrame& frame) noexcept {
+        return ptsContinuity_.observe(mediaSeconds, frame.nb_samples, frame.sample_rate);
+    }
 private:
     SwrContext* context_ = nullptr;
     AVChannelLayout inputLayout_ = {};
@@ -157,6 +164,7 @@ private:
     int inputRate_ = 0;
     std::int64_t nextFrame_ = 0;
     bool hasNextFrame_ = false;
+    AudioPtsContinuity ptsContinuity_;
 };
 
 } // namespace
@@ -254,13 +262,14 @@ public:
         auto& resampler = resamplers_[info.streamId];
         resampler.configure(frame, config_.sampleRate);
         std::int64_t position = delayFrames_;
+        std::optional<double> mediaSeconds;
         if (info.hasPts && info.timeBaseDen > 0) {
-            const double mediaSeconds = static_cast<double>(info.pts) * info.timeBaseNum /
-                                        info.timeBaseDen;
-            if (!std::isfinite(mediaSeconds))
+            mediaSeconds = static_cast<double>(info.pts) * info.timeBaseNum /
+                           info.timeBaseDen;
+            if (!std::isfinite(*mediaSeconds))
                 throw std::runtime_error("audio PTS is not finite");
             if (!originSet_.load()) {
-                originSeconds_.store(mediaSeconds -
+                originSeconds_.store(*mediaSeconds -
                     static_cast<double>(resampler.hasNextFrame()
                                             ? resampler.nextFrame() - delayFrames_ : 0) /
                     config_.sampleRate);
@@ -268,7 +277,7 @@ public:
                     static_cast<double>(delayFrames_) / config_.sampleRate);
                 originSet_.store(true);
             }
-            const double relativeFrames = (mediaSeconds - originSeconds_.load()) * config_.sampleRate;
+            const double relativeFrames = (*mediaSeconds - originSeconds_.load()) * config_.sampleRate;
             if (!std::isfinite(relativeFrames) ||
                 relativeFrames < -static_cast<double>(config_.sampleRate) * 60 ||
                 relativeFrames > static_cast<double>(std::numeric_limits<std::int64_t>::max() / 2))
@@ -277,17 +286,24 @@ public:
         } else if (resampler.hasNextFrame()) {
             position = resampler.nextFrame();
         }
+        const auto ptsGap = resampler.inputPtsGap(mediaSeconds, frame);
         if (resampler.hasNextFrame()) {
-            const auto difference = std::fabs(
-                static_cast<long double>(position) - resampler.nextFrame());
-            if (difference <= config_.sampleRate / 10) {
-                position = resampler.nextFrame();
-            } else {
-                clockRecovery_.reset();
-                driftPpm_.store(0.0);
-                driftErrorMs_.store(0.0);
-                driftLocked_.store(false);
-                lastClockObservation_ = {};
+            // Output frames accumulate the clock correction. Compare input PTS
+            // with the preceding input PTS, not with corrected output frames.
+            position = resampler.nextFrame();
+            if (ptsGap && std::fabs(*ptsGap) > 0.1) {
+                ++inputPtsDiscontinuities_;
+                const double boundedGap = std::clamp(*ptsGap, -2.0, 2.0);
+                position += static_cast<std::int64_t>(
+                    std::llround(boundedGap * config_.sampleRate));
+                if (static_cast<std::uint32_t>(info.streamId) == *mappedTracks_.begin()) {
+                    clockRecovery_.reset();
+                    driftPpm_.store(0.0);
+                    driftErrorMs_.store(0.0);
+                    driftLocked_.store(false);
+                    lastClockObservation_ = {};
+                    ++clockResets_;
+                }
             }
         }
         if (resampler.hasNextFrame() && started_.load() &&
@@ -353,6 +369,8 @@ public:
         result.silentFrames = timeline_.silentFrames();
         result.renderedFrames = renderedFrames_.load();
         result.rejectedFrames = timeline_.rejectedFrames();
+        result.inputPtsDiscontinuities = inputPtsDiscontinuities_.load();
+        result.clockResets = clockResets_.load();
         result.playheadFrames = timeline_.playhead();
         result.streamStarted = started_.load();
         result.streamActive = started_.load() && Pa_IsStreamActive(stream_.get()) == 1;
@@ -423,6 +441,8 @@ private:
     std::atomic_bool originSet_{false};
     std::atomic<double> originSeconds_{0};
     std::atomic<double> mediaPosition_{0};
+    std::atomic<std::uint64_t> inputPtsDiscontinuities_{0};
+    std::atomic<std::uint64_t> clockResets_{0};
     std::atomic_bool started_{false};
     std::atomic<Clock::duration::rep> streamStartTicks_{0};
     std::atomic<Clock::duration::rep> lastCallbackTicks_{0};

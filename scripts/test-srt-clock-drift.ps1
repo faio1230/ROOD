@@ -91,6 +91,15 @@ $rendered = [long](Read-Field $lastAudio 'renderedFrames')
 $silent = [long](Read-Field $lastAudio 'silentFrames')
 $rejected = [long](Read-Field $lastAudio 'rejectedFrames')
 $underflows = [long](Read-Field $lastAudio 'deviceUnderflows')
+$ptsDiscontinuitiesField = [regex]::Match($lastAudio,
+    '(?:^| )inputPtsDiscontinuities=(\d+)')
+$clockResetsField = [regex]::Match($lastAudio, '(?:^| )clockResets=(\d+)')
+$ptsDiscontinuities = if ($ptsDiscontinuitiesField.Success) {
+    [long]$ptsDiscontinuitiesField.Groups[1].Value
+} else { 'unavailable' }
+$clockResets = if ($clockResetsField.Success) {
+    [long]$clockResetsField.Groups[1].Value
+} else { 'unavailable' }
 $received = [long](Read-Field $lastVideo 'received')
 $dropped = [long](Read-Field $lastVideo 'dropped')
 $failed = [long](Read-Field $lastVideo 'failed')
@@ -108,6 +117,8 @@ $summary = @(
     "audioSilentFrames=$silent"
     "audioSilentSeconds=$($silent / [double]$AudioRate)"
     "audioDeviceUnderflows=$underflows"
+    "inputPtsDiscontinuities=$ptsDiscontinuities"
+    "clockResets=$clockResets"
     "audioRejectedFrames=$rejected"
     "audioRejectedFraction=$rejectedFraction"
     "spoutReceivedFrames=$received"
@@ -121,6 +132,7 @@ Set-Content -LiteralPath $summaryPath -Value $summary -Encoding utf8
 if ([Math]::Abs($observedPpm - $expectedPpm) -gt 100 -or
     [Math]::Abs($finalErrorMs) -gt 50 -or $maxErrorMs -gt 50 -or
     $null -eq $maxSyncMs -or $maxSyncMs -gt 40 -or $underflows -ne 0 -or
+    ($clockResetsField.Success -and $clockResets -ne 0) -or
     $rejectedFraction -gt 0.001 -or $droppedFraction -gt 0.001 -or
     $failed -ne 0 -or $rendered -lt ($FirstSeconds * $AudioRate * 0.8) -or
     $silent -gt (2 * $AudioRate) -or

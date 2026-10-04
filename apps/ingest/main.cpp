@@ -105,6 +105,8 @@ public:
                       << " silentFrames=" << summary.silentFrames
                       << " renderedFrames=" << summary.renderedFrames
                       << " rejectedFrames=" << summary.rejectedFrames
+                      << " inputPtsDiscontinuities=" << summary.inputPtsDiscontinuities
+                      << " clockResets=" << summary.clockResets
                       << " recoveries=" << summary.recoveries
                       << " streamFailures=" << summary.streamFailures << std::endl;
             audioOutput->reset();
@@ -223,6 +225,8 @@ public:
                       << " silentFrames=" << audio.silentFrames
                       << " renderedFrames=" << audio.renderedFrames
                       << " rejectedFrames=" << audio.rejectedFrames
+                      << " inputPtsDiscontinuities=" << audio.inputPtsDiscontinuities
+                      << " clockResets=" << audio.clockResets
                       << " streamActive=" << audio.streamActive
                       << " callbackStalled=" << audio.callbackStalled
                       << " driftLocked=" << audio.driftLocked

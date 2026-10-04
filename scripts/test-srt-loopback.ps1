@@ -300,18 +300,18 @@ try {
         $spoutProbe | Wait-Process -Timeout 20
         $spoutProbe.Refresh()
         $probeOutput = Get-Content -LiteralPath $probeStdout -Raw
-        if ($spoutProbe.ExitCode -ne 0 -or
+        if (($null -ne $spoutProbe.ExitCode -and $spoutProbe.ExitCode -ne 0) -or
             $probeOutput -notmatch 'spoutProbe frames=[1-9]\d* size=\d+x\d+ pixelSampleSum=[1-9]\d*') {
-            throw "Spout receiver did not obtain image pixels. See $probeStdout and $probeStderr"
+            throw "Spout receiver did not obtain image pixels (exit=$($spoutProbe.ExitCode), output=$probeOutput). See $probeStdout and $probeStderr"
         }
     }
     if ($omtProbe) {
         $omtProbe | Wait-Process -Timeout 20
         $omtProbe.Refresh()
         $omtOutput = Get-Content -LiteralPath $omtProbeStdout -Raw
-        if ($omtProbe.ExitCode -ne 0 -or
+        if (($null -ne $omtProbe.ExitCode -and $omtProbe.ExitCode -ne 0) -or
             $omtOutput -notmatch "omtProbe video=[1-9]\d* audio=[1-9]\d* size=\d+x\d+ channels=$OmtChannels pixelSampleSum=[1-9]\d* audioSampleSum=") {
-            throw "OMT receiver did not obtain video and routed audio. See $omtProbeStdout and $omtProbeStderr"
+            throw "OMT receiver did not obtain video and routed audio (exit=$($omtProbe.ExitCode), output=$omtOutput). See $omtProbeStdout and $omtProbeStderr"
         }
         if ($OmtProbeSeconds -ge 60) {
             $videoFirst = [regex]::Match($omtOutput, '(?<!\w)videoTimestamp=(\d+)')
