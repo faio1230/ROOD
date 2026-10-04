@@ -77,6 +77,10 @@ public:
                       << " audioPackets=" << summary.audioPackets
                       << " droppedVideo=" << summary.droppedVideoFrames
                       << " rejectedAudio=" << summary.rejectedAudioFrames
+                      << " audioClockVideo=" << summary.audioClockVideoFrames
+                      << " audioClockAudio=" << summary.audioClockAudioPackets
+                      << " maxVideoClockErrorMs=" << summary.maxAudioClockVideoErrorMs
+                      << " maxAudioClockErrorMs=" << summary.maxAudioClockAudioErrorMs
                       << " connections=" << summary.connections << std::endl;
             omtOutput->reset();
         }
@@ -187,6 +191,10 @@ public:
                       << " audioPackets=" << omt.audioPackets
                       << " droppedVideo=" << omt.droppedVideoFrames
                       << " rejectedAudio=" << omt.rejectedAudioFrames
+                      << " audioClockVideo=" << omt.audioClockVideoFrames
+                      << " audioClockAudio=" << omt.audioClockAudioPackets
+                      << " maxVideoClockErrorMs=" << omt.maxAudioClockVideoErrorMs
+                      << " maxAudioClockErrorMs=" << omt.maxAudioClockAudioErrorMs
                       << " connections=" << omt.connections << std::endl;
         }
 #endif
@@ -395,6 +403,7 @@ int main(int argc, char** argv) {
         if (audioOptionsSpecified && !audioRequested)
             throw std::invalid_argument("audio options require --audio-device or --audio-device-id");
         std::unique_ptr<rood::RecoveringAudioOutput> audioOutput;
+        const int referenceAudioDelayMs = audioConfig.outputDelayMs;
         if (audioRequested) audioOutput = std::make_unique<rood::RecoveringAudioOutput>(std::move(audioConfig));
 #endif
         ConsoleObserver observer;
@@ -416,7 +425,18 @@ int main(int argc, char** argv) {
 #endif
 #ifdef ROOD_HAS_OMT_OUTPUT
         if (omtRequested) {
-            observer.omtOutput = std::make_unique<rood::OmtOutput>(std::move(omtConfig));
+#ifdef ROOD_HAS_AUDIO_OUTPUT
+            if (observer.audioOutput) {
+                auto* output = observer.audioOutput.get();
+                observer.omtOutput = std::make_unique<rood::OmtOutput>(
+                    std::move(omtConfig),
+                    [output] { return output->playbackMediaSeconds(); },
+                    referenceAudioDelayMs);
+            } else
+#endif
+            {
+                observer.omtOutput = std::make_unique<rood::OmtOutput>(std::move(omtConfig));
+            }
             std::cout << "omt address=" << observer.omtOutput->address() << std::endl;
         }
 #endif

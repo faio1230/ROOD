@@ -17,9 +17,11 @@ param(
     [string]$SpoutName = '',
     [string]$OmtName = '',
     [int]$OmtChannels = 2,
+    [int]$OmtDelayMs = 250,
     [string[]]$OmtRoutes = @('257:0:0', '258:5:1'),
     [string]$OmtSignalChannels = '0,1',
     [int]$OmtProbeSeconds = 16,
+    [switch]$RequireOmtClockSync,
     [int]$FirstSeconds = 5,
     [int]$ReceiverSeconds = 20,
     [double]$SenderReadRate = 1.0,
@@ -53,10 +55,16 @@ if ($LogName -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$') {
     throw 'LogName must contain only letters, digits, underscores and hyphens.'
 }
 if ($OmtName -and ($OmtChannels -lt 1 -or $OmtChannels -gt 32 -or
+                   $OmtDelayMs -lt 0 -or $OmtDelayMs -gt 5000 -or
                    $OmtRoutes.Count -eq 0 -or -not $OmtSignalChannels -or
                    $OmtProbeSeconds -lt 1 -or $OmtProbeSeconds -gt 600 -or
                    $OmtProbeSeconds -gt $ReceiverSeconds)) {
     throw 'OMT requires 1-32 channels, a route, signal channels and a probe duration within receiver time.'
+}
+if ($RequireOmtClockSync -and (-not $OmtName -or
+    ($AudioDevice -lt 0 -and -not $AudioDeviceId) -or
+    $ExpectAudioUnavailable -or $FirstSeconds -lt 15)) {
+    throw 'RequireOmtClockSync needs OMT, an available audio device and at least 15 seconds.'
 }
 if ($SrtBufferKiB -ne 0 -and ($SrtBufferKiB -lt 64 -or $SrtBufferKiB -gt 16384)) {
     throw 'SrtBufferKiB must be 0 or 64..16384.'
@@ -93,7 +101,8 @@ if ($SpoutName) {
     $receiverArgs += @('--spout', $SpoutName, '--video-delay', "$VideoDelayMs")
 }
 if ($OmtName) {
-    $receiverArgs += @('--omt', $OmtName, '--omt-channels', "$OmtChannels")
+    $receiverArgs += @('--omt', $OmtName, '--omt-channels', "$OmtChannels",
+                       '--omt-delay', "$OmtDelayMs")
     foreach ($route in $OmtRoutes) { $receiverArgs += @('--omt-route', $route) }
 }
 $receiver = Start-Process -FilePath $ReceiverExe -ArgumentList $receiverArgs `
@@ -317,6 +326,46 @@ try {
                 $maxVideoGap -gt 100 -or $maxAudioGap -gt 60) {
                 throw "OMT long-running media timestamps have gaps. See $omtProbeStdout"
             }
+        }
+    }
+    if ($RequireOmtClockSync) {
+        $firstOutput = $output.Substring(0, $output.IndexOf('state disconnected'))
+        $omtLines = @([regex]::Matches($firstOutput, '(?m)^omt video=.+$') |
+            ForEach-Object { $_.Value })
+        if ($omtLines.Count -eq 0) { throw "OMT clock statistics are missing. See $stdout" }
+        $lastOmt = $omtLines[-1]
+        function Read-OmtField([string]$line, [string]$name) {
+            $match = [regex]::Match($line, "(?:^| )$name=([^\s]+)")
+            if (-not $match.Success) { throw "Missing OMT $name in $line" }
+            return $match.Groups[1].Value
+        }
+        $video = [long](Read-OmtField $lastOmt 'video')
+        $audioPackets = [long](Read-OmtField $lastOmt 'audioPackets')
+        $clockVideo = [long](Read-OmtField $lastOmt 'audioClockVideo')
+        $clockAudio = [long](Read-OmtField $lastOmt 'audioClockAudio')
+        $videoError = [double]::Parse((Read-OmtField $lastOmt 'maxVideoClockErrorMs'),
+            [Globalization.CultureInfo]::InvariantCulture)
+        $audioError = [double]::Parse((Read-OmtField $lastOmt 'maxAudioClockErrorMs'),
+            [Globalization.CultureInfo]::InvariantCulture)
+        @(
+            "senderReadRate=$SenderReadRate"
+            "audioDelayMs=$AudioDelayMs"
+            "omtDelayMs=$OmtDelayMs"
+            "firstConnectionSeconds=$FirstSeconds"
+            "videoFrames=$video"
+            "audioPackets=$audioPackets"
+            "audioClockVideoFrames=$clockVideo"
+            "audioClockAudioPackets=$clockAudio"
+            "maxVideoClockErrorMs=$videoError"
+            "maxAudioClockErrorMs=$audioError"
+        ) | Set-Content -LiteralPath (Join-Path $logDir 'omt-clock-summary.txt') -Encoding utf8
+        if ($video -lt ($FirstSeconds * 25 * 0.8) -or
+            $audioPackets -lt ($FirstSeconds * 50 * 0.8) -or
+            $clockVideo -lt ($video * 0.8) -or $clockAudio -lt ($audioPackets * 0.8) -or
+            $videoError -gt 40 -or $audioError -gt 40 -or
+            [long](Read-OmtField $lastOmt 'droppedVideo') -ne 0 -or
+            [long](Read-OmtField $lastOmt 'rejectedAudio') -ne 0) {
+            throw "OMT did not follow the audio device clock. See $stdout and omt-clock-summary.txt"
         }
     }
     Write-Host 'SRT loopback passed: video, stereo and 5.1 audio, PTS, disconnect and reconnect.'

@@ -49,7 +49,7 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 
 `build-media-msvc.cmd` は全ライブラリをリンクする `rood_deps_probe` を起動します。このPCではFFmpeg DLLが `LGPL version 2.1 or later` と報告し、libsrt・Spout2・OMTのシンボルも解決できました。
 
-`run-gui-msvc.cmd` はメディア対応GUIを起動します。音声・Spout・OMTはそれぞれ個別に有効化できます。GUIで指定した設定は現在の実行中だけ有効で、永続保存は今後追加します。
+`run-gui-msvc.cmd` はメディア対応GUIを起動します。音声・Spout・OMTはそれぞれ個別に有効化できます。GUIで指定した設定はユーザー別のINIファイルへ保存され、次回起動時に復元されます。
 
 ### SRT受信の確認
 
@@ -95,7 +95,7 @@ $env:PATH = "$(Resolve-Path ./build/deps/qt/6.10.3/msvc2022_64/bin);$(Resolve-Pa
 
 Spout出力のみを試す場合は `./scripts/run-ingest-msvc.cmd --port 9000 --spout ROOD` を使います。`--video-delay`、`--video-offset`、`--video-late-drop` はミリ秒単位です。`--video-delay` は音声デバイスを使わないときの遅延です。音声デバイスを同時指定すると、その出力遅延とコールバックの推定メディア時刻を映像の基準に使い、映像との時差は `--video-offset` で調整します。デコードスレッドがRGBAに変換して有界キューへ入れ、別スレッドが表示時刻に合わせて送信します。`-SpoutName` 付きループバックでは別プロセスのSpout受信器が画像画素を取得したことまで確認します。
 
-OMT出力の例は `./scripts/run-ingest-msvc.cmd --port 9000 --omt ROOD --omt-channels 2 --omt-rate 48000 --omt-delay 250 --omt-route 257:0:0 --omt-route 258:5:1` です。OMT出力は映像BGRAと最大32チャンネルの平面float32音声を出します。別プロセスの受信プローブで映像画素と32チャンネル音声を受信し、ステレオトラックを0番、別の5.1トラックの6番目を31番に割り当てた信号を確認済みです。音声デバイスとOMTの時刻基準は現時点では別なので、同時出力の長時間同期は未検証です。
+OMT出力の例は `./scripts/run-ingest-msvc.cmd --port 9000 --omt ROOD --omt-channels 2 --omt-rate 48000 --omt-delay 250 --omt-route 257:0:0 --omt-route 258:5:1` です。OMT出力は映像BGRAと最大32チャンネルの平面float32音声を出します。別プロセスの受信プローブで映像画素と32チャンネル音声を受信し、ステレオトラックを0番、別の5.1トラックの6番目を31番に割り当てた信号を確認済みです。音声デバイスと同時出力する場合、OMTの映像・音声はPortAudioの推定メディア時計に追従します。デバイスが使えない間はホスト時計で継続します。これは送出時刻の制御であり、受信画面と物理DACの時差は未測定です。
 
 WASAPI・Spout・32チャンネルOMTの同時出力を2分間受信した試験では、OMT受信器の映像・音声タイムスタンプに逆行はなく、最大間隔は映像40 ms、音声20 msでした。両系列のタイムスタンプ幅も118.6秒で一致しました。これはOMTのメディア時刻の連続性であり、受信画面やDACの物理出力時差を測った値ではありません。
 

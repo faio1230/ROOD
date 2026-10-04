@@ -86,6 +86,8 @@ public:
         running_.store(true);
         try { worker_ = std::thread([this, config = std::move(config)]() mutable {
             try {
+                const int referenceAudioDelayMs = config.audio
+                    ? config.audio->outputDelayMs : 0;
                 std::unique_ptr<rood::RecoveringAudioOutput> audio;
                 std::unique_ptr<rood::SpoutVideoOutput> spout;
                 std::unique_ptr<rood::OmtOutput> omt;
@@ -100,8 +102,16 @@ public:
                     spout = std::make_unique<rood::SpoutVideoOutput>(
                         std::move(*config.spout), std::move(clock));
                 }
-                if (config.omt)
-                    omt = std::make_unique<rood::OmtOutput>(std::move(*config.omt));
+                if (config.omt) {
+                    if (audio) {
+                        auto* source = audio.get();
+                        omt = std::make_unique<rood::OmtOutput>(std::move(*config.omt),
+                            [source] { return source->playbackMediaSeconds(); },
+                            referenceAudioDelayMs);
+                    } else {
+                        omt = std::make_unique<rood::OmtOutput>(std::move(*config.omt));
+                    }
+                }
                 audio_ = audio.get();
                 spout_ = spout.get();
                 omt_ = omt.get();
@@ -666,12 +676,17 @@ private:
                 .arg(snapshot.spout.lastAudioSyncErrorMs, 0, 'f', 2);
         if (snapshot.hasOmt)
             text += QStringLiteral("\nOMT  映像 %1  音声パケット %2  接続 %3\n"
-                                   "映像破棄 %4  音声破棄 %5\n")
+                                   "映像破棄 %4  音声破棄 %5\n"
+                                   "音声時計に同期: 映像 %6 / 音声 %7  最大推定ずれ %8 / %9 ms\n")
                 .arg(snapshot.omt.videoFrames)
                 .arg(snapshot.omt.audioPackets)
                 .arg(snapshot.omt.connections)
                 .arg(snapshot.omt.droppedVideoFrames)
-                .arg(snapshot.omt.rejectedAudioFrames);
+                .arg(snapshot.omt.rejectedAudioFrames)
+                .arg(snapshot.omt.audioClockVideoFrames)
+                .arg(snapshot.omt.audioClockAudioPackets)
+                .arg(snapshot.omt.maxAudioClockVideoErrorMs, 0, 'f', 2)
+                .arg(snapshot.omt.maxAudioClockAudioErrorMs, 0, 'f', 2);
         text += QStringLiteral("\n検出トラック\n");
         for (const auto& track : snapshot.tracks)
             text += QString::fromStdString(track) + '\n';

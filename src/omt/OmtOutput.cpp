@@ -133,17 +133,21 @@ std::int64_t omtTimestamp(double seconds) {
 
 class OmtOutput::Impl {
 public:
-    explicit Impl(OmtOutputConfig config)
+    explicit Impl(OmtOutputConfig config, AudioMediaClock audioMediaClock,
+                  int audioOutputDelayMs)
         : config_(std::move(config)),
           timeline_(config_.audioChannels,
                     checkedTimelineCapacity(config_),
                     config_.audioRoutes),
+          audioMediaClock_(std::move(audioMediaClock)),
+          audioClockOffsetSeconds_((config_.outputDelayMs - audioOutputDelayMs) / 1000.0),
           frameRateN_(config_.videoFrameRateNumerator),
           frameRateD_(config_.videoFrameRateDenominator) {
         if (config_.name.empty() || config_.name.size() > 240 ||
             config_.outputDelayMs < 0 || config_.outputDelayMs > 5000 ||
             config_.audioSampleRate < 8000 || config_.audioSampleRate > 192000 ||
             config_.audioChannels == 0 || config_.audioChannels > 32 ||
+            (audioMediaClock_ && (audioOutputDelayMs < 0 || audioOutputDelayMs > 3000)) ||
             config_.videoFrameRateNumerator <= 0 ||
             config_.videoFrameRateDenominator <= 0)
             throw std::invalid_argument("invalid OMT output configuration");
@@ -194,6 +198,7 @@ public:
             videoQueue_.clear();
             anchorSet_ = false;
             audioStarted_ = false;
+            hostClockFallback_.store(false);
             ++generation_;
             timeline_.reset();
         }
@@ -207,6 +212,13 @@ public:
         result.audioPackets = audioPackets_.load();
         result.droppedVideoFrames = droppedVideoFrames_.load();
         result.rejectedAudioFrames = timeline_.rejectedFrames();
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            result.audioClockVideoFrames = audioClockVideoFrames_;
+            result.audioClockAudioPackets = audioClockAudioPackets_;
+            result.maxAudioClockVideoErrorMs = maxAudioClockVideoErrorMs_;
+            result.maxAudioClockAudioErrorMs = maxAudioClockAudioErrorMs_;
+        }
         std::lock_guard<std::mutex> lock(sendMutex_);
         result.connections = omt_send_connections(sender_);
         return result;
@@ -220,11 +232,61 @@ public:
     }
 
 private:
+    enum class WaitResult { Ready, Late, Reset, Stop };
+
     void establishAnchor(double pts) {
         if (anchorSet_) return;
         anchorSet_ = true;
         anchorPts_ = pts;
         anchorTime_ = Clock::now() + std::chrono::milliseconds(config_.outputDelayMs);
+    }
+
+    WaitResult waitForTarget(std::uint64_t generation, double pts,
+                             Clock::time_point hostTarget, double lateSeconds) {
+        const auto startedWaiting = Clock::now();
+        const auto clockGrace = std::chrono::milliseconds(
+            std::min(config_.outputDelayMs, 250));
+        while (true) {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (stopping_.load()) return WaitResult::Stop;
+                if (generation != generation_) return WaitResult::Reset;
+            }
+            const auto now = Clock::now();
+            std::optional<double> devicePosition;
+            if (audioMediaClock_) devicePosition = audioMediaClock_();
+            if (devicePosition && !std::isfinite(*devicePosition)) devicePosition.reset();
+            if (audioMediaClock_ && !devicePosition && !hostClockFallback_.load() &&
+                now - startedWaiting < clockGrace) {
+                std::unique_lock<std::mutex> lock(mutex_);
+                cv_.wait_for(lock, std::chrono::milliseconds(5));
+                continue;
+            }
+            if (devicePosition) hostClockFallback_.store(false);
+            else if (audioMediaClock_) hostClockFallback_.store(true);
+            const double waitSeconds = devicePosition
+                ? pts + audioClockOffsetSeconds_ - *devicePosition
+                : std::chrono::duration<double>(hostTarget - now).count();
+            if (waitSeconds < -lateSeconds) return WaitResult::Late;
+            if (waitSeconds <= 0.002) return WaitResult::Ready;
+            std::unique_lock<std::mutex> lock(mutex_);
+            cv_.wait_for(lock, std::chrono::duration<double>(
+                std::min(waitSeconds, 0.010)));
+        }
+    }
+
+    void recordClockError(bool video, double pts,
+                          std::optional<double> devicePosition) {
+        if (!devicePosition || !std::isfinite(*devicePosition)) return;
+        const double errorMs = (*devicePosition - pts - audioClockOffsetSeconds_) * 1000.0;
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (video) {
+            ++audioClockVideoFrames_;
+            maxAudioClockVideoErrorMs_ = std::max(maxAudioClockVideoErrorMs_, std::fabs(errorMs));
+        } else {
+            ++audioClockAudioPackets_;
+            maxAudioClockAudioErrorMs_ = std::max(maxAudioClockAudioErrorMs_, std::fabs(errorMs));
+        }
     }
 
     void pushVideo(const FrameInfo&, const AVFrame& frame, double pts) {
@@ -313,17 +375,17 @@ private:
                 anchorPts = anchorPts_;
             }
             const auto target = scheduled(anchorTime, frame.ptsSeconds - anchorPts);
-            {
-                std::unique_lock<std::mutex> lock(mutex_);
-                cv_.wait_until(lock, target, [this, &frame] {
-                    return stopping_.load() || frame.generation != generation_;
-                });
-                if (stopping_.load()) return;
-                if (frame.generation != generation_) continue;
-            }
-            if (Clock::now() - target > std::chrono::milliseconds(120)) {
+            const auto wait = waitForTarget(frame.generation, frame.ptsSeconds,
+                                            target, 0.120);
+            if (wait == WaitResult::Stop) return;
+            if (wait == WaitResult::Reset) continue;
+            if (wait == WaitResult::Late) {
                 droppedVideoFrames_.fetch_add(1);
                 continue;
+            }
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (frame.generation != generation_) continue;
             }
             OMTMediaFrame output = {};
             output.Type = OMTFrameType_Video;
@@ -339,7 +401,12 @@ private:
             output.DataLength = static_cast<int>(frame.bgra.size());
             {
                 std::lock_guard<std::mutex> lock(sendMutex_);
-                if (omt_send(sender_, &output) >= 0) videoFrames_.fetch_add(1);
+                const auto devicePosition = audioMediaClock_
+                    ? audioMediaClock_() : std::optional<double>{};
+                if (omt_send(sender_, &output) >= 0) {
+                    videoFrames_.fetch_add(1);
+                    recordClockError(true, frame.ptsSeconds, devicePosition);
+                }
                 else droppedVideoFrames_.fetch_add(1);
             }
         }
@@ -362,21 +429,24 @@ private:
                 anchorTime = anchorTime_;
                 anchorPts = anchorPts_;
                 playhead = timeline_.playhead();
-                const auto target = scheduled(anchorTime,
-                    static_cast<double>(playhead) / config_.audioSampleRate);
-                cv_.wait_until(lock, target, [this, generation] {
-                    return stopping_.load() || generation != generation_;
-                });
-                if (stopping_.load()) return;
-                if (generation != generation_) continue;
             }
-            if (Clock::now() - scheduled(anchorTime,
-                    static_cast<double>(playhead) / config_.audioSampleRate) >
-                std::chrono::milliseconds(200)) {
-                timeline_.pull(packetFrames, interleaved.data());
+            const double packetPts = anchorPts +
+                static_cast<double>(playhead) / config_.audioSampleRate;
+            const auto target = scheduled(anchorTime,
+                static_cast<double>(playhead) / config_.audioSampleRate);
+            const auto wait = waitForTarget(generation, packetPts, target, 0.200);
+            if (wait == WaitResult::Stop) return;
+            if (wait == WaitResult::Reset) continue;
+            if (wait == WaitResult::Late) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (generation == generation_) timeline_.pull(packetFrames, interleaved.data());
                 continue;
             }
-            timeline_.pull(packetFrames, interleaved.data());
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (generation != generation_) continue;
+                timeline_.pull(packetFrames, interleaved.data());
+            }
             for (std::size_t sample = 0; sample < packetFrames; ++sample)
                 for (std::uint32_t channel = 0; channel < config_.audioChannels; ++channel)
                     planar[channel * packetFrames + sample] =
@@ -384,8 +454,7 @@ private:
             OMTMediaFrame output = {};
             output.Type = OMTFrameType_Audio;
             output.Codec = OMTCodec_FPA1;
-            output.Timestamp = omtTimestamp(anchorPts +
-                static_cast<double>(playhead) / config_.audioSampleRate);
+            output.Timestamp = omtTimestamp(packetPts);
             output.SampleRate = config_.audioSampleRate;
             output.Channels = static_cast<int>(config_.audioChannels);
             output.SamplesPerChannel = static_cast<int>(packetFrames);
@@ -396,12 +465,19 @@ private:
                 if (generation != generation_) continue;
             }
             std::lock_guard<std::mutex> lock(sendMutex_);
-            if (omt_send(sender_, &output) >= 0) audioPackets_.fetch_add(1);
+            const auto devicePosition = audioMediaClock_
+                ? audioMediaClock_() : std::optional<double>{};
+            if (omt_send(sender_, &output) >= 0) {
+                audioPackets_.fetch_add(1);
+                recordClockError(false, packetPts, devicePosition);
+            }
         }
     }
 
     OmtOutputConfig config_;
     AudioTimeline timeline_;
+    AudioMediaClock audioMediaClock_;
+    double audioClockOffsetSeconds_ = 0.0;
     omt_send_t* sender_ = nullptr;
     SwsContext* scale_ = nullptr;
     std::map<int, AudioResampler> resamplers_;
@@ -413,6 +489,7 @@ private:
     std::deque<VideoFrame> videoQueue_;
     bool anchorSet_ = false;
     bool audioStarted_ = false;
+    std::atomic_bool hostClockFallback_{false};
     double anchorPts_ = 0.0;
     Clock::time_point anchorTime_;
     std::uint64_t generation_ = 0;
@@ -422,12 +499,20 @@ private:
     std::atomic<std::uint64_t> videoFrames_{0};
     std::atomic<std::uint64_t> audioPackets_{0};
     std::atomic<std::uint64_t> droppedVideoFrames_{0};
+    std::uint64_t audioClockVideoFrames_ = 0;
+    std::uint64_t audioClockAudioPackets_ = 0;
+    double maxAudioClockVideoErrorMs_ = 0.0;
+    double maxAudioClockAudioErrorMs_ = 0.0;
     std::atomic<int> frameRateN_;
     std::atomic<int> frameRateD_;
 };
 
 OmtOutput::OmtOutput(OmtOutputConfig config)
-    : impl_(std::make_unique<Impl>(std::move(config))) {}
+    : impl_(std::make_unique<Impl>(std::move(config), AudioMediaClock{}, 0)) {}
+OmtOutput::OmtOutput(OmtOutputConfig config, AudioMediaClock audioMediaClock,
+                     int audioOutputDelayMs)
+    : impl_(std::make_unique<Impl>(std::move(config), std::move(audioMediaClock),
+                                   audioOutputDelayMs)) {}
 OmtOutput::~OmtOutput() = default;
 void OmtOutput::pushFrame(const FrameInfo& info, const AVFrame& frame) {
     impl_->pushFrame(info, frame);
