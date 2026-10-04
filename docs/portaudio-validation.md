@@ -21,6 +21,8 @@
 - MSVC版WASAPIでVB-Audio Virtual Cable（ID 12）の共有・排他を48 kHz / 2チャンネルで3秒ずつ再試験しました。共有303 callback、排他302 callback、どちらもunderflow 0。DAC時刻はcallback 2で共有が約8.0 ms、排他が約1.6 ms後退しました。報告遅延は共有22 ms、排他12 msでした。
 - Realtek Digital Outputを同じ物理エンドポイントのWASAPI共有・排他として、48 kHz / 2チャンネルで各10秒測定しました。両モードで形式照会と開設が成功し、共有は1,002 callback・480,960フレーム・実効48,087 frames/s・報告遅延22 ms、排他は1,003 callback・481,440フレーム・実効48,072 frames/s・報告遅延13 msでした。両方ともunderflow 0で、共有の報告DAC時刻後退は0、排他はcallback 2で約0.58 msの後退が1回ありました。出力信号や物理DAC時刻を外部機器で測定した結果ではありません。
 
+同じRealtek Digital Outputへ、MPEG-TSの映像・ステレオ音声・5.1音声をSRTで送り、WASAPI共有と排他をそれぞれ20秒間使いました。SpoutとOMTも同時に出力し、切断後の再接続まで試験スクリプトが合格しました。最初の接続で共有は音声899,265フレーム、排他は900,705フレームをPortAudioコールバックで消費しました。両モードでデバイスunderflow、音声フレーム破棄、SpoutとOMTの映像破棄は0です。OMT受信器は両モードで映像と2チャンネル音声を取得し、タイムスタンプ逆行0、最大間隔は映像40 ms・音声20 msでした。Realtekのデジタル端子から出た信号と映像の物理時差は測っていません。ログは `build/tests/realtek-wasapi-{shared,exclusive}-e2e` に保存しています。
+
 WASAPI排他モードで時刻が後退したため、`outputBufferDacTime` を無条件に連続時刻として使う設計にはしません。ASIOについても `Pa_IsFormatSupported` の結果だけでは開設可否を決められません。これらの数値はドライバ・機器・同時利用状況に依存します。無音出力が成功しても、各チャンネルの実際の行き先、物理DAC時刻、長時間ドリフトは未検証です。
 
 ### 仮想ケーブル録音によるWASAPI経路の確認
