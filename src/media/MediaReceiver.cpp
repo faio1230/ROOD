@@ -18,7 +18,9 @@ extern "C" {
 #endif
 
 #include <chrono>
+#include <algorithm>
 #include <cerrno>
+#include <limits>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -158,6 +160,105 @@ using CodecPtr = std::unique_ptr<AVCodecContext, CodecDeleter>;
 using PacketPtr = std::unique_ptr<AVPacket, PacketDeleter>;
 using FramePtr = std::unique_ptr<AVFrame, FrameDeleter>;
 
+// Decoders can produce their first frames in a different order from media PTS.
+// Wait for one frame from each decodable stream before starting the outputs so
+// a later decoded track cannot lose its first samples to an earlier playhead.
+class StartupFrameBuffer {
+public:
+    StartupFrameBuffer(MediaReceiverObserver& observer, const std::vector<CodecPtr>& decoders)
+        : observer_(observer), expected_(decoders.size(), false),
+          seen_(decoders.size(), false) {
+        for (std::size_t i = 0; i < decoders.size(); ++i) {
+            if (!decoders[i]) continue;
+            expected_[i] = true;
+            ++remaining_;
+        }
+        complete_ = remaining_ == 0;
+    }
+
+    void onFrame(const FrameInfo& info, const AVFrame& frame) {
+        if (complete_) {
+            observer_.onFrame(info, frame);
+            return;
+        }
+        FramePtr retained(av_frame_clone(&frame));
+        if (!retained) throw std::bad_alloc();
+        bufferedBytes_ += (std::min)(frameStorageBytes(frame), maxBytes -
+            (std::min)(bufferedBytes_, maxBytes));
+        buffered_.push_back({info, std::move(retained)});
+        const auto pts = ptsSeconds(info);
+        if (pts != std::numeric_limits<long double>::infinity()) {
+            if (!havePts_) {
+                minPts_ = maxPts_ = pts;
+                havePts_ = true;
+            } else {
+                minPts_ = (std::min)(minPts_, pts);
+                maxPts_ = (std::max)(maxPts_, pts);
+            }
+        }
+        if (info.streamIndex >= 0 &&
+            static_cast<std::size_t>(info.streamIndex) < expected_.size() &&
+            expected_[info.streamIndex] && !seen_[info.streamIndex]) {
+            seen_[info.streamIndex] = true;
+            --remaining_;
+        }
+        // A missing or very slow stream must not hold the other outputs forever.
+        if (remaining_ == 0 || buffered_.size() >= maxFrames ||
+            bufferedBytes_ >= maxBytes ||
+            (havePts_ && maxPts_ - minPts_ >= maxSpanSeconds))
+            flush();
+    }
+
+    void flush() {
+        if (complete_) return;
+        complete_ = true;
+        std::stable_sort(buffered_.begin(), buffered_.end(),
+                         [](const BufferedFrame& a, const BufferedFrame& b) {
+            return ptsSeconds(a.info) < ptsSeconds(b.info);
+        });
+        for (const auto& entry : buffered_)
+            observer_.onFrame(entry.info, *entry.frame);
+        buffered_.clear();
+    }
+
+private:
+    struct BufferedFrame {
+        FrameInfo info;
+        FramePtr frame;
+    };
+    static constexpr std::size_t maxFrames = 128;
+    static constexpr std::size_t maxBytes = 64 * 1024 * 1024;
+    static constexpr long double maxSpanSeconds = 0.25L;
+
+    static std::size_t frameStorageBytes(const AVFrame& frame) {
+        std::size_t bytes = 0;
+        const auto add = [&bytes](const AVBufferRef* buffer) {
+            if (buffer) bytes += (std::min<std::size_t>)(buffer->size,
+                maxBytes - (std::min)(bytes, maxBytes));
+        };
+        for (const AVBufferRef* buffer : frame.buf) add(buffer);
+        for (int i = 0; i < frame.nb_extended_buf; ++i) add(frame.extended_buf[i]);
+        return bytes;
+    }
+
+    static long double ptsSeconds(const FrameInfo& info) {
+        if (!info.hasPts || info.timeBaseDen <= 0)
+            return std::numeric_limits<long double>::infinity();
+        return static_cast<long double>(info.pts) * info.timeBaseNum / info.timeBaseDen;
+    }
+
+    MediaReceiverObserver& observer_;
+    std::vector<bool> expected_;
+    std::vector<bool> seen_;
+    std::size_t remaining_ = 0;
+    std::size_t bufferedBytes_ = 0;
+    long double minPts_ = 0;
+    long double maxPts_ = 0;
+    bool havePts_ = false;
+    std::vector<BufferedFrame> buffered_;
+    bool complete_ = false;
+};
+
 std::string layoutName(const AVChannelLayout& layout) {
     char text[128] = {};
     return av_channel_layout_describe(&layout, text, sizeof(text)) >= 0 ? text : "unknown";
@@ -170,7 +271,7 @@ std::string mediaKind(AVMediaType type) {
 }
 
 void drainDecoder(AVCodecContext* decoder, AVFrame* frame, const AVStream* stream,
-                  MediaReceiverObserver& observer) {
+                  StartupFrameBuffer& startup) {
     while (true) {
         const int result = avcodec_receive_frame(decoder, frame);
         if (result == AVERROR(EAGAIN) || result == AVERROR_EOF) return;
@@ -188,7 +289,7 @@ void drainDecoder(AVCodecContext* decoder, AVFrame* frame, const AVStream* strea
         info.sampleRate = frame->sample_rate;
         info.width = frame->width;
         info.height = frame->height;
-        observer.onFrame(info, *frame);
+        startup.onFrame(info, *frame);
         av_frame_unref(frame);
     }
 }
@@ -270,6 +371,7 @@ void receiveSession(SRTSOCKET socket, std::atomic_bool& stop, MediaReceiverObser
     PacketPtr packet(av_packet_alloc());
     FramePtr frame(av_frame_alloc());
     if (!packet || !frame) throw std::bad_alloc();
+    StartupFrameBuffer startup(observer, decoders);
     while (!stop.load()) {
         const int result = av_read_frame(format.get(), packet.get());
         if (result < 0) {
@@ -282,13 +384,13 @@ void receiveSession(SRTSOCKET socket, std::atomic_bool& stop, MediaReceiverObser
             AVCodecContext* decoder = decoders[index].get();
             int sent = avcodec_send_packet(decoder, packet.get());
             if (sent == AVERROR(EAGAIN)) {
-                drainDecoder(decoder, frame.get(), format->streams[index], observer);
+                drainDecoder(decoder, frame.get(), format->streams[index], startup);
                 sent = avcodec_send_packet(decoder, packet.get());
             }
             if (sent < 0) {
                 observer.onError("avcodec_send_packet stream " + std::to_string(index) + ": " + ffmpegError(sent));
             } else {
-                drainDecoder(decoder, frame.get(), format->streams[index], observer);
+                drainDecoder(decoder, frame.get(), format->streams[index], startup);
             }
         }
         av_packet_unref(packet.get());
@@ -296,8 +398,9 @@ void receiveSession(SRTSOCKET socket, std::atomic_bool& stop, MediaReceiverObser
     for (unsigned i = 0; i < decoders.size(); ++i) {
         if (!decoders[i]) continue;
         avcodec_send_packet(decoders[i].get(), nullptr);
-        drainDecoder(decoders[i].get(), frame.get(), format->streams[i], observer);
+        drainDecoder(decoders[i].get(), frame.get(), format->streams[i], startup);
     }
+    startup.flush();
 }
 
 } // namespace

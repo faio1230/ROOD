@@ -303,6 +303,25 @@ private:
         }
     }
 
+    // Called only while holding sendMutex_. Source PTS can start over when SRT
+    // reconnects, while an OMT receiver can remain attached to this sender.
+    std::int64_t outputTimestamp(double pts, double anchorPts,
+                                 std::uint64_t generation) {
+        if (timestampGeneration_ != generation) {
+            timestampGeneration_ = generation;
+            timestampOffsetSeconds_ = publishedTimestamp_
+                ? (std::max)(0.0, static_cast<double>(lastPublishedTimestamp_) / 10000000.0 +
+                                  0.020 - anchorPts)
+                : 0.0;
+        }
+        return omtTimestamp(pts + timestampOffsetSeconds_);
+    }
+
+    void recordPublishedTimestamp(std::int64_t timestamp) {
+        lastPublishedTimestamp_ = (std::max)(lastPublishedTimestamp_, timestamp);
+        publishedTimestamp_ = true;
+    }
+
     void pushVideo(const FrameInfo&, const AVFrame& frame, double pts) {
         if (frame.width <= 0 || frame.height <= 0 ||
             frame.width > 8192 || frame.height > 8192 ||
@@ -404,7 +423,6 @@ private:
             OMTMediaFrame output = {};
             output.Type = OMTFrameType_Video;
             output.Codec = OMTCodec_BGRA;
-            output.Timestamp = omtTimestamp(frame.ptsSeconds);
             output.Width = frame.width;
             output.Height = frame.height;
             output.Stride = frame.width * 4;
@@ -415,10 +433,17 @@ private:
             output.DataLength = static_cast<int>(frame.bgra.size());
             {
                 std::lock_guard<std::mutex> lock(sendMutex_);
+                {
+                    std::lock_guard<std::mutex> stateLock(mutex_);
+                    if (frame.generation != generation_) continue;
+                }
+                output.Timestamp = outputTimestamp(frame.ptsSeconds, anchorPts,
+                                                   frame.generation);
                 const auto devicePosition = audioMediaClock_
                     ? audioMediaClock_() : std::optional<double>{};
                 if (omt_send(sender_, &output) >= 0) {
                     videoFrames_.fetch_add(1);
+                    recordPublishedTimestamp(output.Timestamp);
                     recordClockError(true, frame.ptsSeconds, devicePosition);
                 }
                 else droppedVideoFrames_.fetch_add(1);
@@ -468,7 +493,6 @@ private:
             OMTMediaFrame output = {};
             output.Type = OMTFrameType_Audio;
             output.Codec = OMTCodec_FPA1;
-            output.Timestamp = omtTimestamp(packetPts);
             output.SampleRate = config_.audioSampleRate;
             output.Channels = static_cast<int>(config_.audioChannels);
             output.SamplesPerChannel = static_cast<int>(packetFrames);
@@ -479,10 +503,16 @@ private:
                 if (generation != generation_) continue;
             }
             std::lock_guard<std::mutex> lock(sendMutex_);
+            {
+                std::lock_guard<std::mutex> stateLock(mutex_);
+                if (generation != generation_) continue;
+            }
+            output.Timestamp = outputTimestamp(packetPts, anchorPts, generation);
             const auto devicePosition = audioMediaClock_
                 ? audioMediaClock_() : std::optional<double>{};
             if (omt_send(sender_, &output) >= 0) {
                 audioPackets_.fetch_add(1);
+                recordPublishedTimestamp(output.Timestamp);
                 recordClockError(false, packetPts, devicePosition);
             }
         }
@@ -510,6 +540,10 @@ private:
     double anchorPts_ = 0.0;
     Clock::time_point anchorTime_;
     std::uint64_t generation_ = 0;
+    std::uint64_t timestampGeneration_ = std::numeric_limits<std::uint64_t>::max();
+    double timestampOffsetSeconds_ = 0.0;
+    std::int64_t lastPublishedTimestamp_ = 0;
+    bool publishedTimestamp_ = false;
     std::thread videoThread_;
     std::thread audioThread_;
     std::atomic_bool stopping_{false};
