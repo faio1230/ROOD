@@ -159,7 +159,7 @@ void probe(int index, bool exclusive, int channels, int sample_rate,
     std::cout << "Device " << index << " (" << api->name << ", " << device->name
               << "), " << channels << " channels, " << sample_rate << " Hz, "
               << (api->type == paWASAPI ? (exclusive ? "exclusive" : "shared") : "default") << ": "
-              << (format == paFormatIsSupported ? "supported" : Pa_GetErrorText(format)) << '\n';
+              << (format == paFormatIsSupported ? "format query accepted" : Pa_GetErrorText(format)) << '\n';
     if (!run_timing || format != paFormatIsSupported) {
         if (run_timing && format != paFormatIsSupported) {
             throw std::runtime_error("requested format is not supported");
