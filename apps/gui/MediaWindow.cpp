@@ -1,3 +1,4 @@
+#include "rood/AudioLevelMeter.hpp"
 #include "rood/MediaReceiver.hpp"
 #include "rood/OmtOutput.hpp"
 #include "rood/RecoveringAudioOutput.hpp"
@@ -11,15 +12,19 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFormLayout>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLinearGradient>
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QMessageBox>
 #include <QMenu>
 #include <QMenuBar>
+#include <QPainter>
 #include <QPlainTextEdit>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSettings>
@@ -29,7 +34,9 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <exception>
 #include <memory>
@@ -51,10 +58,22 @@ struct SessionConfig {
     std::optional<rood::OmtOutputConfig> omt;
 };
 
+struct AudioTrackSnapshot {
+    int streamIndex = -1;
+    int streamId = -1;
+    int channels = 0;
+    std::string codec;
+    std::string channelLayout;
+    std::vector<rood::AudioChannelLevel> levels;
+    std::chrono::steady_clock::time_point lastFrame;
+    std::chrono::steady_clock::time_point peakWindowStart;
+};
+
 struct SessionSnapshot {
     std::string state = "停止中";
     std::string error;
     std::vector<std::string> tracks;
+    std::vector<AudioTrackSnapshot> audioTracks;
     std::vector<std::string> events;
     rood::ConnectionStats connection;
     rood::RecoveringAudioOutputStats audio;
@@ -63,6 +82,10 @@ struct SessionSnapshot {
     std::uint64_t videoFrames = 0;
     std::uint64_t audioFrames = 0;
     bool hasConnectionStats = false;
+    bool hasVideoTrack = false;
+    bool hasAudioTrack = false;
+    std::chrono::steady_clock::time_point lastVideoFrame;
+    std::chrono::steady_clock::time_point lastAudioFrame;
     bool hasAudio = false;
     bool hasSpout = false;
     bool hasOmt = false;
@@ -160,6 +183,11 @@ public:
         appendEventLocked("SRT: " + state);
         if (state == "connected" || state == "disconnected") {
             snapshot_.tracks.clear();
+            snapshot_.audioTracks.clear();
+            snapshot_.hasVideoTrack = false;
+            snapshot_.hasAudioTrack = false;
+            snapshot_.lastVideoFrame = {};
+            snapshot_.lastAudioFrame = {};
             snapshot_.connection = {};
             snapshot_.hasConnectionStats = false;
         }
@@ -179,9 +207,22 @@ public:
             stream << "  " << track.width << 'x' << track.height;
         std::lock_guard<std::mutex> lock(mutex_);
         snapshot_.tracks.push_back(stream.str());
+        if (track.kind == "video") snapshot_.hasVideoTrack = true;
+        if (track.kind == "audio") {
+            snapshot_.hasAudioTrack = true;
+            AudioTrackSnapshot meter;
+            meter.streamIndex = track.streamIndex;
+            meter.streamId = track.streamId;
+            meter.channels = track.channels;
+            meter.codec = track.codec;
+            meter.channelLayout = track.channelLayout;
+            snapshot_.audioTracks.push_back(std::move(meter));
+        }
     }
 
     void onFrame(const rood::FrameInfo& info, const AVFrame& frame) override {
+        auto levels = info.kind == "audio"
+            ? rood::measureAudioLevels(frame) : std::vector<rood::AudioChannelLevel>{};
         if (audio_ && info.kind == "audio") {
             try { audio_->pushFrame(info, frame); }
             catch (const std::exception& error) { onError(error.what()); }
@@ -195,8 +236,32 @@ public:
             catch (const std::exception& error) { omtFailed_ = true; onError(error.what()); }
         }
         std::lock_guard<std::mutex> lock(mutex_);
-        if (info.kind == "video") ++snapshot_.videoFrames;
-        if (info.kind == "audio") ++snapshot_.audioFrames;
+        if (info.kind == "video") {
+            ++snapshot_.videoFrames;
+            snapshot_.lastVideoFrame = std::chrono::steady_clock::now();
+        }
+        if (info.kind == "audio") {
+            ++snapshot_.audioFrames;
+            snapshot_.lastAudioFrame = std::chrono::steady_clock::now();
+            for (auto& track : snapshot_.audioTracks) {
+                if (track.streamIndex != info.streamIndex) continue;
+                const auto now = std::chrono::steady_clock::now();
+                if (!levels.empty()) track.channels = static_cast<int>(levels.size());
+                if (track.levels.size() != levels.size() ||
+                    now - track.peakWindowStart > std::chrono::milliseconds(500)) {
+                    track.levels = std::move(levels);
+                    track.peakWindowStart = now;
+                } else {
+                    for (std::size_t channel = 0; channel < levels.size(); ++channel) {
+                        track.levels[channel].peakDbfs = std::max(
+                            track.levels[channel].peakDbfs, levels[channel].peakDbfs);
+                        track.levels[channel].rmsDbfs = levels[channel].rmsDbfs;
+                    }
+                }
+                track.lastFrame = now;
+                break;
+            }
+        }
     }
 
     void onStats(const rood::ConnectionStats& connection) override {
@@ -300,6 +365,46 @@ QSpinBox* spin(int minimum, int maximum, int value, QWidget* parent) {
     return box;
 }
 
+class LevelBar final : public QWidget {
+public:
+    explicit LevelBar(QWidget* parent = nullptr) : QWidget(parent) {
+        setMinimumSize(150, 16);
+    }
+
+    void setLevels(float rmsDbfs, float peakDbfs) {
+        rmsDbfs_ = rmsDbfs;
+        peakDbfs_ = peakDbfs;
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter painter(this);
+        const QRect area = rect().adjusted(1, 1, -1, -1);
+        painter.fillRect(area, QColor(QStringLiteral("#263139")));
+        const auto position = [area](float dbfs) {
+            return std::clamp(static_cast<int>((dbfs + 60.0f) / 60.0f * area.width()),
+                              0, area.width());
+        };
+        QLinearGradient colors(area.topLeft(), area.topRight());
+        colors.setColorAt(0.0, QColor(QStringLiteral("#318b69")));
+        colors.setColorAt(0.73, QColor(QStringLiteral("#d4af43")));
+        colors.setColorAt(1.0, QColor(QStringLiteral("#dc5757")));
+        painter.fillRect(QRect(area.left(), area.top(), position(rmsDbfs_), area.height()), colors);
+        if (peakDbfs_ > -60.0f) {
+            painter.setPen(QPen(QColor(QStringLiteral("#f5f5f5")), 2));
+            const int x = area.left() + position(peakDbfs_);
+            painter.drawLine(x, area.top(), x, area.bottom());
+        }
+        painter.setPen(QColor(QStringLiteral("#56636b")));
+        painter.drawRect(area);
+    }
+
+private:
+    float rmsDbfs_ = -90.0f;
+    float peakDbfs_ = -90.0f;
+};
+
 class MediaWindow final : public QMainWindow {
 public:
     MediaWindow() {
@@ -351,6 +456,50 @@ public:
         actions->addWidget(stopButton_);
         actions->addStretch();
         root->addLayout(actions);
+
+        auto* monitor = new QWidget(central);
+        auto* monitorLayout = new QHBoxLayout(monitor);
+        monitorLayout->setContentsMargins(0, 0, 0, 0);
+        auto* srtGroup = new QGroupBox(QStringLiteral("SRT受信モニター"), monitor);
+        auto* srtLayout = new QVBoxLayout(srtGroup);
+        connectionState_ = new QLabel(QStringLiteral("停止中"), srtGroup);
+        QFont stateFont = connectionState_->font();
+        stateFont.setPointSize(13);
+        stateFont.setBold(true);
+        connectionState_->setFont(stateFont);
+        srtLayout->addWidget(connectionState_);
+        receiveRate_ = new QLabel(QStringLiteral("受信速度: —"), srtGroup);
+        srtLayout->addWidget(receiveRate_);
+        activity_ = new QLabel(QStringLiteral("映像: 未検出  |  音声: 未検出"), srtGroup);
+        srtLayout->addWidget(activity_);
+        queueLabel_ = new QLabel(QStringLiteral("受信キュー: —"), srtGroup);
+        srtLayout->addWidget(queueLabel_);
+        queueMeter_ = new QProgressBar(srtGroup);
+        queueMeter_->setObjectName(QStringLiteral("srtQueueMeter"));
+        queueMeter_->setRange(0, 100);
+        queueMeter_->setValue(0);
+        queueMeter_->setFormat(QStringLiteral("容量未取得"));
+        srtLayout->addWidget(queueMeter_);
+        linkStats_ = new QLabel(QStringLiteral("RTT: —  損失: —  再送: —"), srtGroup);
+        linkStats_->setWordWrap(true);
+        srtLayout->addWidget(linkStats_);
+        srtLayout->addStretch();
+        monitorLayout->addWidget(srtGroup, 1);
+
+        auto* meterGroup = new QGroupBox(QStringLiteral("受信音声レベル（デコード後・出力前）"), monitor);
+        auto* meterLayout = new QVBoxLayout(meterGroup);
+        meterScroll_ = new QScrollArea(meterGroup);
+        meterScroll_->setWidgetResizable(true);
+        meterScroll_->setMinimumHeight(155);
+        meterContainer_ = new QWidget(meterScroll_);
+        audioMetersLayout_ = new QVBoxLayout(meterContainer_);
+        audioMetersLayout_->setContentsMargins(4, 4, 4, 4);
+        audioMetersLayout_->addWidget(new QLabel(QStringLiteral("音声トラック待機中"), meterContainer_));
+        audioMetersLayout_->addStretch();
+        meterScroll_->setWidget(meterContainer_);
+        meterLayout->addWidget(meterScroll_);
+        monitorLayout->addWidget(meterGroup, 2);
+        root->addWidget(monitor);
 
         auto* splitter = new QSplitter(Qt::Horizontal, central);
         auto* scroll = new QScrollArea(splitter);
@@ -649,8 +798,143 @@ private:
         }
     }
 
+public:
+    void updateMonitor(const SessionSnapshot& snapshot) {
+        QString state = QString::fromStdString(snapshot.state);
+        QColor stateColor(QStringLiteral("#68757e"));
+        if (snapshot.state == "connected") {
+            state = QStringLiteral("接続中");
+            stateColor = QColor(QStringLiteral("#27805b"));
+        } else if (snapshot.state == "listening") {
+            state = QStringLiteral("待受中");
+            stateColor = QColor(QStringLiteral("#9b742b"));
+        } else if (snapshot.state == "disconnected") {
+            state = QStringLiteral("切断・再待受中");
+            stateColor = QColor(QStringLiteral("#b05245"));
+        } else if (snapshot.state == "エラー") {
+            stateColor = QColor(QStringLiteral("#b23c42"));
+        }
+        connectionState_->setText(state);
+        QPalette palette = connectionState_->palette();
+        palette.setColor(QPalette::WindowText, stateColor);
+        connectionState_->setPalette(palette);
+        const auto now = std::chrono::steady_clock::now();
+        const auto signalState = [now](bool detected,
+                                       std::chrono::steady_clock::time_point lastFrame) {
+            if (!detected) return QStringLiteral("未検出");
+            if (lastFrame != std::chrono::steady_clock::time_point{} &&
+                now - lastFrame < std::chrono::seconds(2))
+                return QStringLiteral("受信中");
+            return QStringLiteral("信号待ち");
+        };
+        activity_->setText(QStringLiteral("映像: %1  |  音声: %2")
+            .arg(signalState(snapshot.hasVideoTrack, snapshot.lastVideoFrame))
+            .arg(signalState(snapshot.hasAudioTrack, snapshot.lastAudioFrame)));
+
+        if (snapshot.hasConnectionStats) {
+            const auto& srt = snapshot.connection;
+            receiveRate_->setText(QStringLiteral("受信速度: %1 Mb/s  |  累計: %2 bytes")
+                .arg(srt.receiveMbps, 0, 'f', 2).arg(srt.receivedBytes));
+            queueLabel_->setText(QStringLiteral("受信キュー: %1 ms  |  %2 / %3 bytes")
+                .arg(srt.receiveBufferMs).arg(srt.receiveBufferBytes)
+                .arg(srt.receiveBufferCapacityBytes));
+            if (srt.receiveBufferCapacityBytes > 0) {
+                const int occupancy = std::clamp(static_cast<int>(
+                    100.0 * srt.receiveBufferBytes / srt.receiveBufferCapacityBytes), 0, 100);
+                queueMeter_->setValue(occupancy);
+                queueMeter_->setFormat(QStringLiteral("容量の %1%").arg(occupancy));
+                const QString color = occupancy >= 90 ? QStringLiteral("#c74848")
+                    : occupancy >= 75 ? QStringLiteral("#c49735")
+                    : QStringLiteral("#2e936e");
+                queueMeter_->setStyleSheet(QStringLiteral(
+                    "QProgressBar { text-align: center; } "
+                    "QProgressBar::chunk { background: %1; }").arg(color));
+            } else {
+                queueMeter_->setValue(0);
+                queueMeter_->setFormat(QStringLiteral("容量未取得"));
+            }
+            linkStats_->setText(QStringLiteral("RTT: %1 ms  |  累計損失: %2  |  直近再送: %3")
+                .arg(srt.rttMs, 0, 'f', 1).arg(srt.lostPackets)
+                .arg(srt.retransmittedPacketsInInterval));
+        } else {
+            receiveRate_->setText(QStringLiteral("受信速度: —"));
+            queueLabel_->setText(QStringLiteral("受信キュー: —"));
+            queueMeter_->setValue(0);
+            queueMeter_->setFormat(QStringLiteral("容量未取得"));
+            linkStats_->setText(QStringLiteral("RTT: —  |  損失: —  |  再送: —"));
+        }
+
+        std::vector<std::pair<int, int>> keys;
+        std::vector<std::string> signatures;
+        for (const auto& track : snapshot.audioTracks) {
+            signatures.push_back(std::to_string(track.streamIndex) + ":" +
+                std::to_string(track.streamId) + ":" + std::to_string(track.channels) +
+                ":" + track.codec + ":" + track.channelLayout);
+            for (int channel = 0; channel < std::min(track.channels, 256); ++channel)
+                keys.emplace_back(track.streamIndex, channel);
+        }
+        if (keys != meterKeys_ || signatures != meterSignatures_) {
+            meterRows_.clear();
+            while (auto* item = audioMetersLayout_->takeAt(0)) {
+                delete item->widget();
+                delete item;
+            }
+            meterKeys_ = std::move(keys);
+            meterSignatures_ = std::move(signatures);
+            if (snapshot.audioTracks.empty()) {
+                audioMetersLayout_->addWidget(new QLabel(QStringLiteral("音声トラック待機中"), meterContainer_));
+            } else {
+                for (const auto& track : snapshot.audioTracks) {
+                    auto* group = new QGroupBox(QStringLiteral("ID %1  •  %2  •  %3  •  %4 ch")
+                        .arg(track.streamId).arg(QString::fromStdString(track.codec))
+                        .arg(QString::fromStdString(track.channelLayout))
+                        .arg(track.channels), meterContainer_);
+                    auto* grid = new QGridLayout(group);
+                    for (int channel = 0; channel < std::min(track.channels, 256); ++channel) {
+                        auto* label = new QLabel(QStringLiteral("Ch %1").arg(channel + 1), group);
+                        auto* bar = new LevelBar(group);
+                        bar->setObjectName(QStringLiteral("audioLevel_%1_%2")
+                            .arg(track.streamIndex).arg(channel));
+                        auto* value = new QLabel(QStringLiteral("信号なし"), group);
+                        value->setMinimumWidth(150);
+                        grid->addWidget(label, channel, 0);
+                        grid->addWidget(bar, channel, 1);
+                        grid->addWidget(value, channel, 2);
+                        grid->setColumnStretch(1, 1);
+                        meterRows_.push_back({track.streamIndex, channel, bar, value});
+                    }
+                    audioMetersLayout_->addWidget(group);
+                }
+            }
+            audioMetersLayout_->addStretch();
+        }
+        for (const auto& row : meterRows_) {
+            const auto track = std::find_if(snapshot.audioTracks.begin(), snapshot.audioTracks.end(),
+                [&row](const AudioTrackSnapshot& candidate) {
+                    return candidate.streamIndex == row.streamIndex;
+                });
+            if (track == snapshot.audioTracks.end() ||
+                track->lastFrame == std::chrono::steady_clock::time_point{} ||
+                now - track->lastFrame > std::chrono::milliseconds(750)) {
+                row.bar->setLevels(-90.0f, -90.0f);
+                row.value->setText(QStringLiteral("信号なし"));
+            } else if (row.channel >= static_cast<int>(track->levels.size())) {
+                row.bar->setLevels(-90.0f, -90.0f);
+                row.value->setText(QStringLiteral("計測不可"));
+            } else {
+                const auto& level = track->levels[static_cast<std::size_t>(row.channel)];
+                row.bar->setLevels(level.rmsDbfs, level.peakDbfs);
+                row.value->setText(QStringLiteral("P %1 / R %2 dBFS")
+                    .arg(level.peakDbfs, 0, 'f', 1)
+                    .arg(level.rmsDbfs, 0, 'f', 1));
+            }
+        }
+    }
+
+private:
     void updateStatus() {
         const auto snapshot = session_.snapshot();
+        updateMonitor(snapshot);
         QString text = QStringLiteral("状態: %1\n").arg(QString::fromStdString(snapshot.state));
         if (!snapshot.error.empty())
             text += QStringLiteral("直近エラー: %1\n").arg(QString::fromStdString(snapshot.error));
@@ -757,6 +1041,24 @@ private:
     QSpinBox* omtDelay_ = nullptr;
     QPlainTextEdit* omtRoutes_ = nullptr;
     QPlainTextEdit* status_ = nullptr;
+    QLabel* connectionState_ = nullptr;
+    QLabel* receiveRate_ = nullptr;
+    QLabel* activity_ = nullptr;
+    QLabel* queueLabel_ = nullptr;
+    QLabel* linkStats_ = nullptr;
+    QProgressBar* queueMeter_ = nullptr;
+    QScrollArea* meterScroll_ = nullptr;
+    QWidget* meterContainer_ = nullptr;
+    QVBoxLayout* audioMetersLayout_ = nullptr;
+    struct MeterRow {
+        int streamIndex;
+        int channel;
+        LevelBar* bar;
+        QLabel* value;
+    };
+    std::vector<std::pair<int, int>> meterKeys_;
+    std::vector<std::string> meterSignatures_;
+    std::vector<MeterRow> meterRows_;
     QPushButton* startButton_ = nullptr;
     QPushButton* stopButton_ = nullptr;
     QPushButton* refreshButton_ = nullptr;

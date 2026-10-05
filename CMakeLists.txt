@@ -45,7 +45,9 @@ if(ROOD_BUILD_SRT_INGEST)
     find_path(ROOD_LIBSRT_INCLUDE_DIR srt/srt.h REQUIRED)
     find_library(ROOD_LIBSRT_LIBRARY NAMES srt REQUIRED)
 
-    add_library(rood_media STATIC src/media/MediaReceiver.cpp)
+    add_library(rood_media STATIC
+        src/media/MediaReceiver.cpp
+        src/media/AudioLevelMeter.cpp)
     target_include_directories(rood_media PUBLIC include "${ROOD_FFMPEG_INCLUDE_DIR}" "${ROOD_LIBSRT_INCLUDE_DIR}")
     target_link_libraries(rood_media PUBLIC
         "${ROOD_AVFORMAT_LIBRARY}" "${ROOD_AVCODEC_LIBRARY}"
@@ -256,5 +258,19 @@ if(BUILD_TESTING)
             -File "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-gui-settings-test.ps1"
             -Executable "$<TARGET_FILE:gui_settings_test>"
             -PortAudioBin "${ROOD_GUI_TEST_PA_ROOT}/bin")
+    endif()
+    if(TARGET rood_media)
+        add_executable(audio_level_meter_test tests/AudioLevelMeterTest.cpp)
+        target_link_libraries(audio_level_meter_test PRIVATE rood_media)
+        if(WIN32)
+            get_filename_component(ROOD_MEDIA_LIB_DIR "${ROOD_AVUTIL_LIBRARY}" DIRECTORY)
+            get_filename_component(ROOD_MEDIA_ROOT "${ROOD_MEDIA_LIB_DIR}" DIRECTORY)
+            add_test(NAME audio_level_meter COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+                -File "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-audio-level-meter-test.ps1"
+                -Executable "$<TARGET_FILE:audio_level_meter_test>"
+                -MediaBin "${ROOD_MEDIA_ROOT}/bin")
+        else()
+            add_test(NAME audio_level_meter COMMAND audio_level_meter_test)
+        endif()
     endif()
 endif()
